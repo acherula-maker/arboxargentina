@@ -2,6 +2,13 @@
 <html lang="es-AR">
 <head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!-- Meta Pixel Code -->
+<script>
+!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+fbq('init','943206914715277');
+fbq('track','PageView');
+</script>
+<!-- End Meta Pixel Code -->
 <title>Arbox Argentina | Importar desde USA, China y España a Argentina</title>
 <meta name="description" content="Importá desde Amazon, Alibaba y tiendas de USA, China y España. Consolidamos tu carga en Miami, Madrid y Shenzhen y la enviamos directo a Argentina. Calculá tu envío hoy."/>
 <link rel="canonical" href="https://arboxargentina.com/"/>
@@ -832,6 +839,7 @@ footer a:hover{color:rgba(255,255,255,.75)}
   </script>
 </head>
 <body>
+<!-- Meta Pixel (noscript) --><noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=943206914715277&ev=PageView&noscript=1" alt=""/></noscript>
 <div id="landing">
 
 <!-- ── LANG BAR ── -->
@@ -2199,6 +2207,32 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Escape') closeLightbox();
 });
 
+// ─── Meta Pixel: helpers de eventos + Conversions API (dedup por eventID) ─────────
+const META_PIXEL_ID = '943206914715277';
+function fbGetCookie(name) { const m = document.cookie.match('(^|; )' + name + '=([^;]+)'); return m ? decodeURIComponent(m[2]) : ''; }
+function fbEventId() { return 'ev-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10); }
+// Dispara Lead en el navegador (pixel) y en el servidor (CAPI) con el MISMO eventID.
+// La parte server-side es inerte si el backend no tiene META_CAPI_TOKEN configurado.
+function trackLead(customData, userData) {
+  const eventId = fbEventId();
+  try { if (window.fbq) fbq('track', 'Lead', customData || {}, { eventID: eventId }); } catch (e) {}
+  try {
+    fetch('/api/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      keepalive: true,
+      body: JSON.stringify({
+        event_name: 'Lead',
+        event_id: eventId,
+        event_source_url: location.href,
+        custom_data: customData || {},
+        user_data: Object.assign({ fbp: fbGetCookie('_fbp'), fbc: fbGetCookie('_fbc') }, userData || {})
+      })
+    }).catch(function () {});
+  } catch (e) {}
+  return eventId;
+}
+
 function switchCuit(mode) {
   document.getElementById('panel-concuit').classList.toggle('active', mode === 'con');
   document.getElementById('panel-sincuit').classList.toggle('active', mode === 'sin');
@@ -2229,7 +2263,8 @@ function calcQuote() {
   const wasVisible = res.classList.contains('visible');
   res.classList.add('visible');
   if (!wasVisible && flete > 0) {
-    try { trackEvent('generate_lead', { currency: 'USD', value: flete, origin: origen, mode: tipo, weight_kg: kg }); fbq('track','Lead',{content_name:'cotizador',currency:'USD',value:flete}); } catch(e){}
+    try { trackEvent('generate_lead', { currency: 'USD', value: flete, origin: origen, mode: tipo, weight_kg: kg }); } catch(e){}
+    trackLead({ content_name:'cotizador', content_category:'importacion', currency:'USD', value:flete });
   }
   actualizarWALink();
   updatePdfBtn();
@@ -2436,14 +2471,15 @@ function calcExport() {
   document.getElementById('exp-services').innerHTML = q.items.map(it =>
     `<div class="exp-svc"><div><div class="exp-svc-name">${it.label}</div><div class="exp-svc-demora">${it.demora}</div></div><div class="exp-svc-price">${usd(it.precio)}</div></div>`
   ).join('');
+  const wasVisible = resEl.classList.contains('visible');
   resEl.classList.add('visible');
   waBtn.style.display = 'flex';
   waBtn.href = buildExpWa(pais, peso, alto, ancho, largo, q, q.items);
 
-  try {
-    trackEvent('generate_lead', { type:'export', currency:'USD', value:q.items[0].precio, country:pais });
-    fbq('track', 'Lead', { content_name:'cotizador_export', currency:'USD', value:q.items[0].precio });
-  } catch (e) {}
+  if (!wasVisible) { // dispara Lead una sola vez, no en cada tecla
+    try { trackEvent('generate_lead', { type:'export', currency:'USD', value:q.items[0].precio, country:pais }); } catch (e) {}
+    trackLead({ content_name:'cotizador_export', content_category:'exportacion', currency:'USD', value:q.items[0].precio });
+  }
 }
 
 // ─── Config ───────────────────────────────────────────────────────
@@ -2583,7 +2619,13 @@ async function doRegister() {
     });
     okEl.textContent = '¡Cuenta creada! Ya podés iniciar sesión.';
     okEl.style.display = 'flex';
-    try { gtagReportConversion('SIGNUP_LABEL'); trackEvent('sign_up', { method: 'email' }); fbq('track','CompleteRegistration'); } catch(e){}
+    try {
+      const _nm = (name || '').split(/\s+/);
+      // Advanced Matching: re-init con datos del usuario (fbq los hashea con SHA-256)
+      if (window.fbq) fbq('init', META_PIXEL_ID, { em: email, fn: _nm[0] || '', ln: _nm.slice(1).join(' ') });
+      gtagReportConversion('SIGNUP_LABEL'); trackEvent('sign_up', { method: 'email' });
+      if (window.fbq) fbq('track', 'CompleteRegistration');
+    } catch(e){}
     document.getElementById('reg-name').value = '';
     document.getElementById('reg-email').value = '';
     document.getElementById('reg-username').value = '';
