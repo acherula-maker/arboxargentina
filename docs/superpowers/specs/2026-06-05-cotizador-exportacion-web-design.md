@@ -156,7 +156,7 @@ Metadatos de servicios (igual al bot):
     Muestra el peso facturable usado. Si un servicio no aplica al destino, no
     aparece. Si ningún servicio aplica → mensaje "No tenemos tarifa para ese
     destino, escribinos por WhatsApp".
-  - **CTA**: botón "Avanzar por WhatsApp" → `https://wa.me/5491171473919?text=...`
+  - **CTA**: botón "Avanzar por WhatsApp" → `https://wa.me/5491140348451?text=...`
     con país, peso, medidas y servicios cotizados pre-armados (URL-encoded).
   - **Disclaimer**: "Valores orientativos en USD. No incluye seguro ni gestión
     aduanera de destino."
