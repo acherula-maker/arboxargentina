@@ -33,7 +33,7 @@
       "url": "https://arboxargentina.com",
       "logo": "https://arboxargentina.com/logo-nuevo.png",
       "contactPoint": [
-        { "@type": "ContactPoint", "telephone": "+54-9-11-7147-3919", "contactType": "customer service", "areaServed": "AR", "availableLanguage": "Spanish" },
+        { "@type": "ContactPoint", "telephone": "+54-9-11-4034-8451", "contactType": "customer service", "areaServed": "AR", "availableLanguage": "Spanish" },
         { "@type": "ContactPoint", "telephone": "+1-786-789-3244", "contactType": "customer service", "areaServed": "US", "availableLanguage": "Spanish" }
       ],
       "sameAs": ["https://www.instagram.com/arboxargentina/"]
@@ -44,7 +44,7 @@
       "name": "Arbox Argentina",
       "description": "Empresa argentina de comercio exterior y courier internacional. Importaciones desde USA, China y España con depósitos propios, despacho aduanero y entrega a domicilio.",
       "url": "https://arboxargentina.com",
-      "telephone": "+54-9-11-7147-3919",
+      "telephone": "+54-9-11-4034-8451",
       "email": "info@arboxargentina.com",
       "address": { "@type": "PostalAddress", "addressCountry": "AR", "addressRegion": "Buenos Aires" },
       "priceRange": "$$",
@@ -419,6 +419,18 @@ h1.hero-h1 em{font-style:italic;font-weight:300;color:rgba(255,255,255,.45)}
 .tax-row.tax-grand .tax-label,.tax-row.tax-grand .tax-val{color:#050507;font-weight:800;font-size:.88rem}
 .tax-disclaimer{font-size:.7rem;color:rgba(255,255,255,.3);line-height:1.5;margin-top:12px;padding:10px 12px;background:rgba(255,255,255,.05);border-radius:8px;border-left:3px solid rgba(255,255,255,.15)}
 .divider-label{font-size:.72rem;font-weight:700;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.8px;padding:14px 0 8px;border-top:1px solid rgba(255,255,255,.1);margin-top:14px}
+/* Toggle Importación / Exportación */
+.cotz-mode-toggle{display:flex;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:4px;gap:4px;margin-bottom:28px;max-width:440px}
+.cotz-mode-btn{flex:1;padding:11px 14px;border:none;border-radius:7px;font-size:.9rem;font-weight:700;cursor:pointer;transition:all .2s;color:rgba(255,255,255,.45);background:transparent;font-family:inherit}
+.cotz-mode-btn.active{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.15)}
+/* Resultados exportación */
+.exp-result{margin-top:20px;display:none}
+.exp-result.visible{display:block}
+.exp-result-head{font-size:.72rem;font-weight:700;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;text-align:center;line-height:1.5}
+.exp-svc{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:13px 16px;border:1px solid rgba(255,255,255,.12);border-radius:10px;margin-bottom:8px;background:rgba(255,255,255,.06)}
+.exp-svc-name{font-size:.86rem;font-weight:700;color:#fff;line-height:1.3}
+.exp-svc-demora{font-size:.74rem;color:rgba(255,255,255,.4);margin-top:3px}
+.exp-svc-price{font-size:1.15rem;font-weight:900;color:#fff;white-space:nowrap;letter-spacing:-.02em}
 
 /* ══════════════════════════════════════════
    GALERÍA — infinite photo strip
@@ -1041,8 +1053,15 @@ footer a:hover{color:rgba(255,255,255,.75)}
 <!-- ══ COTIZADOR ══ -->
 <section class="section bg-surface" id="cotizador">
   <div class="section-tag">Cotizador</div>
-  <div class="section-title">Cotizador de importación — calculá tu envío online</div>
-  <p class="section-sub">Elegí modalidad (con o sin CUIT), origen y peso. Calculamos flete e impuestos estimados de importación al instante.</p>
+  <div class="section-title" id="cotz-title">Cotizador de importación — calculá tu envío online</div>
+  <p class="section-sub" id="cotz-sub">Elegí modalidad (con o sin CUIT), origen y peso. Calculamos flete e impuestos estimados de importación al instante.</p>
+
+  <div class="cotz-mode-toggle">
+    <button class="cotz-mode-btn active" id="cotz-mode-impo" onclick="switchCotz('impo')">📥 Importación</button>
+    <button class="cotz-mode-btn" id="cotz-mode-expo" onclick="switchCotz('expo')">📤 Exportación</button>
+  </div>
+
+  <div id="cotz-import">
   <div class="quoter-wrap">
     <div>
       <div class="cuit-toggle">
@@ -1180,6 +1199,64 @@ footer a:hover{color:rgba(255,255,255,.75)}
       <button class="calc-btn" onclick="scrollToLogin()">Acceder al Panel de Cliente</button>
     </div>
   </div>
+  </div><!-- /#cotz-import -->
+
+  <!-- ── Panel EXPORTACIÓN (FedEx) ── -->
+  <div id="cotz-export" style="display:none">
+  <div class="quoter-wrap">
+    <div>
+      <div class="rate-origin">
+        <div class="rate-origin-head">📤 Exportá con FedEx desde Argentina</div>
+        <div class="rate-rows">
+          <div class="rate-row"><span class="rate-range">International Priority</span><span class="rate-price">2–4 días hábiles</span></div>
+          <div class="rate-row"><span class="rate-range">International Connect Plus</span><span class="rate-price">3–5 días hábiles</span></div>
+          <div class="rate-row"><span class="rate-range">International Economy</span><span class="rate-price">5–7 días hábiles</span></div>
+        </div>
+      </div>
+      <ul class="includes-list">
+        <li>Cotización al instante para +100 destinos</li>
+        <li>Precio final en USD (combustible incluido)</li>
+        <li>Te derivamos al equipo para cerrar el envío</li>
+      </ul>
+      <span class="rate-note" style="margin-top:8px;line-height:1.5">ℹ El precio se calcula sobre el <strong style="color:rgba(255,255,255,.6)">peso facturable</strong>: el mayor entre el peso real y el volumétrico (alto × ancho × largo ÷ 5000).</span>
+    </div>
+
+    <div class="calc-card">
+      <h3>Calculadora de exportación</h3>
+      <div class="calc-field">
+        <label>País de destino</label>
+        <input type="text" id="exp-pais" list="exp-paises-list" placeholder="Ej: Estados Unidos" autocomplete="off" oninput="calcExport()">
+        <datalist id="exp-paises-list"></datalist>
+      </div>
+      <div class="calc-field">
+        <label>Peso real (kg)</label>
+        <input type="number" id="exp-peso" placeholder="Ej: 5" min="0.1" step="0.1" oninput="calcExport()">
+      </div>
+      <div class="calc-field">
+        <label>Medidas del paquete (cm)</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <input type="number" id="exp-alto" placeholder="Alto" min="1" step="1" oninput="calcExport()">
+          <input type="number" id="exp-ancho" placeholder="Ancho" min="1" step="1" oninput="calcExport()">
+          <input type="number" id="exp-largo" placeholder="Largo" min="1" step="1" oninput="calcExport()">
+        </div>
+      </div>
+
+      <div class="exp-result" id="exp-result">
+        <div class="exp-result-head" id="exp-result-head"></div>
+        <div id="exp-services"></div>
+      </div>
+
+      <div class="calc-disclaimer" id="exp-msg" style="display:none"></div>
+
+      <div class="calc-disclaimer" id="exp-disclaimer">Valores orientativos en USD. No incluye seguro ni gestión aduanera de destino.</div>
+
+      <a id="exp-wa-btn" class="calc-btn" style="display:none;align-items:center;justify-content:center;gap:8px;text-decoration:none;background:#25d366;margin-bottom:8px" target="_blank" rel="noopener" href="https://wa.me/5491140348451">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+        Avanzar por WhatsApp
+      </a>
+    </div>
+  </div>
+  </div><!-- /#cotz-export -->
 </section>
 
 <!-- ══ TESTIMONIOS ══ -->
@@ -1203,7 +1280,7 @@ footer a:hover{color:rgba(255,255,255,.75)}
   <div class="contact-grid">
     <div class="contact-info">
       <a class="contact-item" href="mailto:info@arboxargentina.com"><div class="contact-item-icon">✉️</div><div><div class="ci-label">Email</div><div class="ci-val">info@arboxargentina.com</div></div></a>
-      <a class="contact-item" href="tel:+5491140348451"><div class="contact-item-icon">📱</div><div><div class="ci-label">Argentina</div><div class="ci-val">+54 9 11 7147-3919</div></div></a>
+      <a class="contact-item" href="tel:+5491140348451"><div class="contact-item-icon">📱</div><div><div class="ci-label">Argentina</div><div class="ci-val">+54 9 11 4034-8451</div></div></a>
       <a class="contact-item" href="tel:+17867893244"><div class="contact-item-icon">📞</div><div><div class="ci-label">USA</div><div class="ci-val">+1 (786) 789-3244</div></div></a>
       <div class="contact-social">
         <a class="social-btn wa" href="https://wa.me/5491140348451" target="_blank">
@@ -1306,7 +1383,7 @@ footer a:hover{color:rgba(255,255,255,.75)}
       <h4>Contacto</h4>
       <ul>
         <li><a href="mailto:info@arboxargentina.com">info@arboxargentina.com</a></li>
-        <li><a href="tel:+5491140348451">+54 9 11 7147-3919</a></li>
+        <li><a href="tel:+5491140348451">+54 9 11 4034-8451</a></li>
         <li><a href="tel:+17867893244">+1 (786) 789-3244</a></li>
         <li><a href="https://instagram.com/arboxargentina" target="_blank">@arboxargentina</a></li>
       </ul>
@@ -2222,6 +2299,151 @@ function actualizarWALink() {
 
   const btn = document.getElementById('wa-btn');
   if (btn) btn.href = 'https://wa.me/5491140348451?text=' + encodeURIComponent(msg);
+}
+
+// ─── Cotizador de EXPORTACIÓN (FedEx) ─────────────────────────────
+// Réplica client-side del motor del agente de WhatsApp (exportQuotes.ts).
+// Los precios del dataset ya son finales (combustible + ganancia incluidos);
+// no se expone el costo FedEx ni el margen.
+let FEDEX_DATA = null;
+let fedexLoading = null;
+
+const EXP_SERVICES = [
+  { key:'priority',     field:'priority',    label:'FedEx International Priority',     demora:'2–4 días hábiles' },
+  { key:'connect_plus', field:'connectPlus', label:'FedEx International Connect Plus', demora:'3–5 días hábiles' },
+  { key:'economy',      field:'economy',     label:'FedEx International Economy',      demora:'5–7 días hábiles' },
+];
+
+function expRound2(n) { return Number(`${Math.round(Number(`${n}e2`))}e-2`); }
+function expNorm(s) { return s.normalize('NFD').replace(/[̀-ͯ]/g,'').trim().toLowerCase(); }
+
+function expLookupZone(pais, d) {
+  const k = expNorm(pais);
+  let m = d.zones.find(z => expNorm(z.name) === k || (z.code && z.code.toLowerCase() === k));
+  if (!m) m = d.zones.find(z => /resto del mundo/i.test(z.name)); // fallback, igual al bot
+  return m || null;
+}
+
+function expRate(svc, zone, fac, d) {
+  if (fac <= 20.5) {
+    const p = d.rates.fixed[svc + '|' + zone + '|' + fac];
+    return (p == null) ? null : { kind:'fixed', precio:p };
+  }
+  const b = d.rates.bands.find(x => x.service === svc && x.zone === zone && x.min <= fac && (x.max == null || x.max >= fac));
+  return b ? { kind:'band', finalPorKg:b.finalPorKg } : null;
+}
+
+function expCotizar(inp, d) {
+  const vol = (inp.alto * inp.ancho * inp.largo) / d.meta.volumetricDivisor;
+  const fac = Math.ceil(Math.max(inp.pesoReal, vol) * 2) / 2; // facturable, redondeo a 0,5 kg
+  const zr  = expLookupZone(inp.pais, d);
+  const items = [];
+  if (zr) {
+    for (const s of EXP_SERVICES) {
+      const z = zr[s.field];
+      if (!z || z === '-') continue;                 // servicio no disponible para ese destino
+      const r = expRate(s.key, z, fac, d);
+      if (!r) continue;                              // sin tarifa cargada => se omite
+      const precio = r.kind === 'fixed' ? r.precio : expRound2(r.finalPorKg * fac);
+      items.push({ label:s.label, demora:s.demora, zona:z, precio });
+    }
+  }
+  return { fac, vol, zona: zr ? zr.name : null, items };
+}
+
+function loadFedexData() {
+  if (FEDEX_DATA) return Promise.resolve(FEDEX_DATA);
+  if (fedexLoading) return fedexLoading;
+  fedexLoading = fetch('data/fedex-export.json')
+    .then(r => { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+    .then(d => { FEDEX_DATA = d; populateExpPaises(d); calcExport(); return d; })
+    .catch(err => {
+      const m = document.getElementById('exp-msg');
+      if (m) { m.style.display = 'block'; m.textContent = 'No se pudo cargar el cotizador. Probá de nuevo o escribinos por WhatsApp.'; }
+      fedexLoading = null;
+      throw err;
+    });
+  return fedexLoading;
+}
+
+function populateExpPaises(d) {
+  const dl = document.getElementById('exp-paises-list');
+  if (!dl || dl.childElementCount) return;
+  const frag = document.createDocumentFragment();
+  d.zones.filter(z => !/resto del mundo/i.test(z.name))
+    .map(z => z.name)
+    .sort((a, b) => a.localeCompare(b, 'es'))
+    .forEach(name => { const o = document.createElement('option'); o.value = name; frag.appendChild(o); });
+  dl.appendChild(frag);
+}
+
+function switchCotz(mode) {
+  const isExp = mode === 'expo';
+  document.getElementById('cotz-import').style.display = isExp ? 'none' : 'block';
+  document.getElementById('cotz-export').style.display = isExp ? 'block' : 'none';
+  document.getElementById('cotz-mode-impo').classList.toggle('active', !isExp);
+  document.getElementById('cotz-mode-expo').classList.toggle('active', isExp);
+  document.getElementById('cotz-title').textContent = isExp
+    ? 'Cotizador de exportación — envíos FedEx al mundo'
+    : 'Cotizador de importación — calculá tu envío online';
+  document.getElementById('cotz-sub').textContent = isExp
+    ? 'Elegí país de destino, peso real y medidas. Calculamos el precio de los servicios FedEx disponibles al instante.'
+    : 'Elegí modalidad (con o sin CUIT), origen y peso. Calculamos flete e impuestos estimados de importación al instante.';
+  if (isExp) loadFedexData();
+}
+
+function buildExpWa(pais, peso, alto, ancho, largo, q, items) {
+  let msg = `Hola! Quiero cotizar una exportación FedEx:\n• Destino: ${pais}\n• Peso real: ${peso} kg\n• Medidas: ${alto}×${ancho}×${largo} cm\n• Peso facturable: ${q.fac} kg`;
+  if (items.length) {
+    msg += '\n\nServicios cotizados:';
+    items.forEach(it => { msg += `\n• ${it.label}: ${usd(it.precio)} (${it.demora})`; });
+  }
+  msg += '\n\n¿Cómo avanzamos?';
+  return 'https://wa.me/5491140348451?text=' + encodeURIComponent(msg);
+}
+
+function calcExport() {
+  const d      = FEDEX_DATA;
+  const resEl  = document.getElementById('exp-result');
+  const msgEl  = document.getElementById('exp-msg');
+  const waBtn  = document.getElementById('exp-wa-btn');
+  msgEl.style.display = 'none';
+  if (!d) { resEl.classList.remove('visible'); waBtn.style.display = 'none'; return; }
+
+  const pais  = (document.getElementById('exp-pais').value || '').trim();
+  const peso  = parseFloat(document.getElementById('exp-peso').value);
+  const alto  = parseFloat(document.getElementById('exp-alto').value);
+  const ancho = parseFloat(document.getElementById('exp-ancho').value);
+  const largo = parseFloat(document.getElementById('exp-largo').value);
+
+  if (!pais || !(peso > 0) || !(alto > 0) || !(ancho > 0) || !(largo > 0)) {
+    resEl.classList.remove('visible'); waBtn.style.display = 'none'; return;
+  }
+
+  const q = expCotizar({ pais, pesoReal:peso, alto, ancho, largo }, d);
+
+  if (!q.items.length) {
+    resEl.classList.remove('visible');
+    msgEl.style.display = 'block';
+    msgEl.textContent = 'No tenemos tarifa para ese destino. Escribinos por WhatsApp y lo cotizamos a mano.';
+    waBtn.style.display = 'flex';
+    waBtn.href = buildExpWa(pais, peso, alto, ancho, largo, q, []);
+    return;
+  }
+
+  document.getElementById('exp-result-head').textContent =
+    'Servicios FedEx · peso facturable ' + q.fac + ' kg' + (q.zona ? ' · destino: ' + q.zona : '');
+  document.getElementById('exp-services').innerHTML = q.items.map(it =>
+    `<div class="exp-svc"><div><div class="exp-svc-name">${it.label}</div><div class="exp-svc-demora">${it.demora}</div></div><div class="exp-svc-price">${usd(it.precio)}</div></div>`
+  ).join('');
+  resEl.classList.add('visible');
+  waBtn.style.display = 'flex';
+  waBtn.href = buildExpWa(pais, peso, alto, ancho, largo, q, q.items);
+
+  try {
+    trackEvent('generate_lead', { type:'export', currency:'USD', value:q.items[0].precio, country:pais });
+    fbq('track', 'Lead', { content_name:'cotizador_export', currency:'USD', value:q.items[0].precio });
+  } catch (e) {}
 }
 
 // ─── Config ───────────────────────────────────────────────────────
@@ -3690,7 +3912,7 @@ function _generateCotizacionPDF() {
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(180, 180, 180);
   doc.text('Courier Internacional & Comercio Exterior', M, 23);
-  doc.text('arboxargentina.com  ·  +54 9 11 7147-3919', M, 29);
+  doc.text('arboxargentina.com  ·  +54 9 11 4034-8451', M, 29);
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
@@ -3840,7 +4062,7 @@ function _generateCotizacionPDF() {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(150, 150, 150);
-  doc.text('Arbox Argentina  ·  info@arboxargentina.com  ·  +54 9 11 7147-3919', M, y + 4);
+  doc.text('Arbox Argentina  ·  info@arboxargentina.com  ·  +54 9 11 4034-8451', M, y + 4);
   doc.text(fecha, W - M, y + 4, { align: 'right' });
 
   // ── Guardar ──
