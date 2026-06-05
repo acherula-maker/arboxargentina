@@ -1,0 +1,23 @@
+# Dependencias
+node_modules/
+
+# Secretos / entorno
+.env
+.env.*
+!.env.example
+
+# Sistema
+.DS_Store
+*.log
+
+# Backups / duplicados
+*.backup
+"* 2.*"
+
+# Datos pesados / media (no versionar)
+*.mp4
+*.png
+*.jpeg
+*.jpg
+*.pdf
+*.xlsx
