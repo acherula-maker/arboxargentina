@@ -3072,17 +3072,39 @@ async function doForgotPassword() {
 
 // ─── Restore session from localStorage ───────────────────────────
 (async function restoreSession() {
+  // 1) Admin: se mantiene logueado 45 min (con expiración)
   try {
-    const saved = localStorage.getItem('arbox_session');
-    if (!saved) return;
-    const { client } = JSON.parse(saved);
-    if (!client) return;
-    currentClient = client;
-    await loadClientData();
-    openDashboard();
+    const rawAdmin = localStorage.getItem('arbox_admin');
+    if (rawAdmin) {
+      const a = JSON.parse(rawAdmin);
+      if (a && a.token && a.exp && a.exp > Date.now()) {
+        try {
+          await openAdminPanel(a.token); // recarga datos y renueva la ventana de 45 min
+          return;
+        } catch {
+          // Token vencido del lado del servidor (ej. redeploy) → volver al login
+          doAdminLogout();
+        }
+      } else {
+        localStorage.removeItem('arbox_admin');
+      }
+    }
+  } catch { localStorage.removeItem('arbox_admin'); }
+
+  // 2) Cliente: sesión persistente; NO se cierra por un error transitorio al cargar datos
+  const saved = localStorage.getItem('arbox_session');
+  if (!saved) return;
+  let client;
+  try {
+    client = JSON.parse(saved).client;
   } catch {
     localStorage.removeItem('arbox_session');
+    return;
   }
+  if (!client) { localStorage.removeItem('arbox_session'); return; }
+  currentClient = client;
+  try { await loadClientData(); } catch (e) { /* mantener la sesión; refreshAll reintenta */ }
+  openDashboard();
 })();
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3099,15 +3121,19 @@ async function adminFetch(url, opts={}) {
   const r = await fetch(url, opts);
   if (!r.ok) {
     const err = await r.text();
-    if (r.status === 403) alert('Sesión expirada. Volvé a iniciar sesión.');
+    if (r.status === 403) { localStorage.removeItem('arbox_admin'); alert('Sesión expirada. Volvé a iniciar sesión.'); }
     throw new Error(err);
   }
   return r.json();
 }
 
+const ADMIN_SESSION_MS = 45 * 60 * 1000; // la sesión de admin se mantiene 45 min
+
 async function openAdminPanel(token) {
   adminToken = token;
   isSuperAdmin = true;
+  // Persistir la sesión de admin por 45 min (se renueva en cada apertura/recarga)
+  localStorage.setItem('arbox_admin', JSON.stringify({ token, exp: Date.now() + ADMIN_SESSION_MS }));
   updatePdfBtn();
   document.getElementById('landing').style.display   = 'none';
   document.getElementById('dashboard').classList.remove('active');
@@ -3121,6 +3147,7 @@ async function openAdminPanel(token) {
 function doAdminLogout() {
   adminToken = null; adminClients = []; adminPackages = [];
   isSuperAdmin = false;
+  localStorage.removeItem('arbox_admin');
   updatePdfBtn();
   document.getElementById('admin-panel').classList.remove('active');
   document.getElementById('landing').style.display = 'block';
@@ -3751,7 +3778,7 @@ function openLiquidacion(clientId) {
   document.getElementById('liq-client-email').textContent = c.email || '(sin email)';
 
   const tbody = document.getElementById('liq-table-body');
-  const pkgs = c.packages.filter(p => p.estado === 'Listo para entrega');
+  const pkgs = c.packages.filter(p => p.estado === 'Clasificando en BsAs');
 
   tbody.innerHTML = pkgs.length ? pkgs.map(p => `
     <tr>
@@ -3765,7 +3792,7 @@ function openLiquidacion(clientId) {
       <td><input type="number" class="liq-costo" data-id="${p.id}" value="${p.costo||0}" step="0.01" min="0"
            style="width:100px;padding:5px 8px;border:1.5px solid var(--mist);border-radius:6px;font-size:.85rem;text-align:right"
            oninput="updateLiqTotals()"></td>
-    </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--gray);padding:16px">No hay paquetes con estado "Listo para entrega".</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--gray);padding:16px">No hay paquetes con estado "Clasificando en BsAs".</td></tr>';
 
   updateLiqTotals();
   openModal('modal-liquidacion');
