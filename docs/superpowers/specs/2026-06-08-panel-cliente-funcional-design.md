@@ -143,13 +143,34 @@ el análisis y agregar el envío de liquidación por WhatsApp.
   **directamente** como `Recibido en origen` (dispara el cambio de estado +
   email) en vez de solo agregarlo a la lista. Con el toggle OFF, queda el
   comportamiento actual (acumular + aplicar en lote).
-- Si un tracking escaneado **no matchea** ningún paquete registrado → aviso
-  claro "no encontrado" para asignarlo/crearlo rápido.
+- Si un tracking escaneado **no matchea** ningún paquete registrado → se crea un
+  paquete **No asignado** (ver §I) en estado `Recibido en origen`, capturando
+  tracking + depósito (Miami) + nombre del destinatario (opcional, lo lee de la
+  etiqueta). Miami sigue escaneando sin trabarse.
 - **Reforzar pre-registro:** empujar en el panel del cliente que cargue el
   tracking apenas compra (copy/hint en la pestaña Registrar y en empty states),
   para que Miami solo escanee y nunca tipee datos.
 - Nota: el camino **automático** vía 17track (`detectDepotArrival`) ya marca
   "Recibido en origen" solo, para carriers soportados (no Amazon/USPS).
+
+### I. Bandeja de "No asignados" (server + front admin + claim cliente)
+
+- **Modelo:** los paquetes sin dueño se guardan como paquete normal con
+  `clientId: null` y `unassigned: true` (reusa la estructura existente; no
+  aparecen en el panel de ningún cliente porque se filtra por `clientId`).
+- **Bandeja admin** (nueva sección): lista los paquetes con `unassigned: true`
+  (tracking, destinatario, depósito, fecha). Acciones:
+  - **Asignar a cliente:** buscador de clientes → setea `clientId`, limpia
+    `unassigned`, y dispara el email de "recibido" al cliente.
+- **Reclamo por el cliente:** en el panel del cliente, "¿Te falta un paquete?
+  Ingresá el tracking" → si matchea un paquete `unassigned`, se le asigna a ese
+  cliente (setea `clientId`, limpia el flag). Cubre el caso de quien se registró
+  después de que el paquete ya llegó.
+- **Endpoints:**
+  - `POST /api/admin/unassigned` (o reuso de creación) → crea el paquete no
+    asignado desde el escáner.
+  - `PUT /api/admin/packages/:id/assign` → asigna a un cliente + email.
+  - `POST /api/packages/claim` `{ clientId, tracking }` → reclamo del cliente.
 
 ### E. Enviar liquidación por WhatsApp (front admin)
 
@@ -170,6 +191,9 @@ el análisis y agregar el envío de liquidación por WhatsApp.
   generar `deliveryToken` (devolverlo en la respuesta).
 - **Modificado:** `POST /api/auth/register` (teléfono obligatorio) y endpoints
   admin de clientes → aceptar/guardar `phone`.
+- **Nuevo:** `POST /api/admin/unassigned` (crear paquete no asignado desde el
+  escáner), `PUT /api/admin/packages/:id/assign` (asignar a cliente + email),
+  `POST /api/packages/claim` (reclamo del cliente por tracking).
 
 ## Modelo de datos (cambios)
 
@@ -178,6 +202,8 @@ el análisis y agregar el envío de liquidación por WhatsApp.
 - `movement.items: [{id,desc,deposito,peso,costo}]`, `movement.totalPeso` y
   `movement.deliveryToken` (solo movimientos de liquidación).
 - `db.deliveries[token] = { clientId, ref, packageIds, delivered, deliveredAt }`.
+- `package.clientId: null` + `package.unassigned: true` para paquetes en la
+  bandeja de "No asignados"; `package.destinatario` (nombre leído de la etiqueta).
 - `package.trackCache: { fetchedAt, carrier, events }` (cache interno; no se
   expone tal cual).
 
@@ -208,7 +234,9 @@ el análisis y agregar el envío de liquidación por WhatsApp.
 - Entregados: tras entregar, los paquetes salen de "activos" y aparecen en
   📦 Entregados.
 - Escáner Miami: con "recibir al instante" ON, un escaneo válido marca
-  `Recibido en origen` + email; tracking inexistente → aviso "no encontrado".
+  `Recibido en origen` + email; tracking sin match → cae en "No asignados".
+- No asignados: asignar a cliente desde admin (setea clientId + email);
+  reclamo del cliente por tracking lo asigna a su cuenta.
 - Regresión: que los tabs actuales (Resumen, Paquetes, CC, Registrar) sigan
   funcionando; sesión admin 45 min y cliente persistente intactas.
 
@@ -224,7 +252,7 @@ el análisis y agregar el envío de liquidación por WhatsApp.
 ## Orden de implementación
 
 1. Teléfono obligatorio + WhatsApp en liquidación + escáner Miami "recibir al
-   instante" (todo chico, alto valor operativo).
+   instante" + bandeja de "No asignados" (asignar/reclamar) — flujo operativo.
 2. Entregados archivados (sección aparte; sacar entregados de "activos").
 3. Vista dedicada de detalle de paquete (estado + qué sigue, costos, progreso).
 4. Seguimiento real 17track (endpoint + timeline en el detalle).
@@ -241,3 +269,5 @@ el análisis y agregar el envío de liquidación por WhatsApp.
   liquidación, página pública `/entrega/:token` + API de entrega, `phone` en
   register/admin clientes).
 - **Nuevo (front):** librería JS chica de generación de QR (sin red).
+- También: bandeja admin de "No asignados" + reclamo por tracking en el panel
+  del cliente (front), y sus endpoints en `server.js`.
