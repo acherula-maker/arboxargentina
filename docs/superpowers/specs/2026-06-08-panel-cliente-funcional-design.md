@@ -98,11 +98,58 @@ el análisis y agregar el envío de liquidación por WhatsApp.
 
 - Agregar `phone` al modelo de cliente.
 - **Registro** (`#register-form-card` + `doRegister` + `POST /api/auth/register`):
-  nuevo campo teléfono (con código de país, ej. `54911…`).
+  campo teléfono **OBLIGATORIO** (con código de país, ej. `54911…`).
+  `doRegister` valida presencia + formato; el server rechaza si falta.
 - **Admin alta/edición de cliente** (`POST/PUT /api/admin/clients…` + sus
   modales): nuevo campo teléfono.
 - Clientes existentes sin teléfono: el admin lo completa editando.
 - `server.js`: aceptar y persistir `phone` en register y en alta/edición admin.
+
+### F. QR de entrega → marca ENTREGADO (server + página pública + front)
+
+- **Alcance:** un QR por liquidación; al confirmarlo, **todos** los paquetes de
+  esa liquidación pasan a `Entregado`.
+- **Token:** al crear la liquidación, el server genera un `deliveryToken`
+  aleatorio (`crypto.randomBytes`) y guarda en el movimiento (o en
+  `db.deliveries[token]`): `{ clientId, ref, packageIds, delivered:false,
+  deliveredAt:null }`. El token vuelve en la respuesta para poder dibujar el QR.
+- **QR:** se dibuja en el **PDF de la liquidación** (generado en el front con
+  jsPDF) codificando `https://arboxargentina.com/entrega/<token>`. Se agrega una
+  librería JS chica de generación de QR (sin llamadas externas).
+- **Página pública** (sin login), servida por `server.js` en
+  `GET /entrega/:token`: HTML mínimo, mobile-first, muestra cliente + lista de
+  paquetes + botón **"Confirmar entrega"** (1 toque).
+- **Endpoints:**
+  - `GET /api/entrega/:token` → datos de la entrega (cliente, paquetes, si ya
+    fue entregada).
+  - `POST /api/entrega/:token` → marca todos los paquetes como `Entregado`
+    (historial + ts), setea `delivered`/`deliveredAt`. **Idempotente**: si ya
+    estaba entregado, responde "ya entregado" sin duplicar.
+- Seguridad: el token es aleatorio/no adivinable; la acción es de bajo riesgo e
+  idempotente.
+
+### G. Entregados archivados (front)
+
+- "Mis Paquetes" muestra **solo activos** (`renderPackages` excluye
+  `estado === 'Entregado'`).
+- Nueva sección de sidebar **📦 Entregados** (`#tab-entregados`): lista los
+  paquetes entregados (archivo), de solo lectura, con acceso a su vista de
+  detalle. Así no se mezclan con los activos.
+
+### H. Escáner de Miami optimizado (front admin)
+
+- En el 🔍 Escáner (`#adm-escaner`), agregar un toggle **"Recibir al instante"**:
+  con el toggle ON, cada `scanPkg()` que matchea un paquete lo marca
+  **directamente** como `Recibido en origen` (dispara el cambio de estado +
+  email) en vez de solo agregarlo a la lista. Con el toggle OFF, queda el
+  comportamiento actual (acumular + aplicar en lote).
+- Si un tracking escaneado **no matchea** ningún paquete registrado → aviso
+  claro "no encontrado" para asignarlo/crearlo rápido.
+- **Reforzar pre-registro:** empujar en el panel del cliente que cargue el
+  tracking apenas compra (copy/hint en la pestaña Registrar y en empty states),
+  para que Miami solo escanee y nunca tipee datos.
+- Nota: el camino **automático** vía 17track (`detectDepotArrival`) ya marca
+  "Recibido en origen" solo, para carriers soportados (no Amazon/USPS).
 
 ### E. Enviar liquidación por WhatsApp (front admin)
 
@@ -116,16 +163,21 @@ el análisis y agregar el envío de liquidación por WhatsApp.
 ## Endpoints / cambios de backend (resumen)
 
 - **Nuevo:** `GET /api/packages/:id/tracking` (eventos 17track en vivo + cache).
-- **Modificado:** `POST /api/admin/liquidacion` → guardar `items`/`totalPeso` en
-  el movimiento.
-- **Modificado:** `POST /api/auth/register` y endpoints admin de clientes →
-  aceptar/guardar `phone`.
+- **Nuevo:** `GET /entrega/:token` (página pública de confirmación de entrega).
+- **Nuevo:** `GET /api/entrega/:token` (datos) y `POST /api/entrega/:token`
+  (marca Entregado, idempotente).
+- **Modificado:** `POST /api/admin/liquidacion` → guardar `items`/`totalPeso` y
+  generar `deliveryToken` (devolverlo en la respuesta).
+- **Modificado:** `POST /api/auth/register` (teléfono obligatorio) y endpoints
+  admin de clientes → aceptar/guardar `phone`.
 
 ## Modelo de datos (cambios)
 
-- `client.phone: string` (opcional; formato `54911…`).
-- `movement.items: [{id,desc,deposito,peso,costo}]`, `movement.totalPeso` (solo
-  movimientos de liquidación).
+- `client.phone: string` (obligatorio en registros nuevos; formato `54911…`;
+  los clientes viejos pueden no tenerlo hasta que el admin lo cargue).
+- `movement.items: [{id,desc,deposito,peso,costo}]`, `movement.totalPeso` y
+  `movement.deliveryToken` (solo movimientos de liquidación).
+- `db.deliveries[token] = { clientId, ref, packageIds, delivered, deliveredAt }`.
 - `package.trackCache: { fetchedAt, carrier, events }` (cache interno; no se
   expone tal cual).
 
@@ -147,9 +199,16 @@ el análisis y agregar el envío de liquidación por WhatsApp.
   Amazon o sin key → fallback.
 - Documentos: paquete con archivo → descarga; liquidación → PDF con ítems;
   estado de cuenta → PDF.
-- Teléfono: registro con teléfono; alta/edición admin; persistencia en `db.json`.
+- Teléfono: registro **rechaza sin teléfono**; alta/edición admin; persistencia.
 - WhatsApp liquidación: con teléfono abre `wa.me` con texto correcto; sin
   teléfono avisa.
+- QR entrega: liquidar genera token; el PDF trae el QR; escanear → página →
+  confirmar → todos los paquetes pasan a `Entregado`; segundo escaneo = "ya
+  entregado" (idempotente).
+- Entregados: tras entregar, los paquetes salen de "activos" y aparecen en
+  📦 Entregados.
+- Escáner Miami: con "recibir al instante" ON, un escaneo válido marca
+  `Recibido en origen` + email; tracking inexistente → aviso "no encontrado".
 - Regresión: que los tabs actuales (Resumen, Paquetes, CC, Registrar) sigan
   funcionando; sesión admin 45 min y cliente persistente intactas.
 
@@ -160,18 +219,25 @@ el análisis y agregar el envío de liquidación por WhatsApp.
 - Rediseño visual / cambio de tema del panel.
 - Guardar PDFs de liquidación como archivos en el servidor (se generan en el
   front a demanda).
+- Foto/firma de entrega en el QR (queda en "solo confirmar", 1 toque).
 
 ## Orden de implementación
 
-1. Teléfono del cliente + botón WhatsApp en liquidación (chico, valor inmediato).
-2. Vista dedicada de detalle de paquete (estado + qué sigue, costos, progreso).
-3. Seguimiento real 17track (endpoint + timeline en el detalle).
-4. Centro de documentos (archivos + PDFs de liquidación/estado de cuenta).
+1. Teléfono obligatorio + WhatsApp en liquidación + escáner Miami "recibir al
+   instante" (todo chico, alto valor operativo).
+2. Entregados archivados (sección aparte; sacar entregados de "activos").
+3. Vista dedicada de detalle de paquete (estado + qué sigue, costos, progreso).
+4. Seguimiento real 17track (endpoint + timeline en el detalle).
+5. QR de entrega (token en liquidación + página pública + endpoints + QR en PDF).
+6. Centro de documentos (archivos + PDFs de liquidación/estado de cuenta).
 
 ## Archivos afectados
 
-- **Modificado:** `index.html` (vista de detalle, tab Documentos, campo teléfono
-  en registro, botón WhatsApp en liquidación, fetch de tracking, generación de
-  PDFs).
-- **Modificado:** `server.js` (endpoint `/tracking`, items en liquidación,
-  `phone` en register/admin clientes).
+- **Modificado:** `index.html` (vista de detalle, tab Documentos, tab
+  Entregados, teléfono obligatorio en registro, botón WhatsApp en liquidación,
+  toggle "recibir al instante" en el escáner, fetch de tracking, generación de
+  PDFs + QR en el PDF de liquidación).
+- **Modificado:** `server.js` (endpoint `/tracking`, items + `deliveryToken` en
+  liquidación, página pública `/entrega/:token` + API de entrega, `phone` en
+  register/admin clientes).
+- **Nuevo (front):** librería JS chica de generación de QR (sin red).
