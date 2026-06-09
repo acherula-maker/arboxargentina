@@ -1613,6 +1613,12 @@ footer a:hover{color:rgba(255,255,255,.75)}
         </div>
       </div>
 
+      <!-- DETALLE DE PAQUETE -->
+      <div class="tab-panel fadeIn" id="tab-detalle">
+        <button onclick="closePackageDetail()" style="background:none;border:1px solid var(--mist);border-radius:8px;padding:8px 14px;font-size:.85rem;cursor:pointer;color:var(--mid);margin-bottom:16px">← Volver</button>
+        <div id="detalle-content"></div>
+      </div>
+
     </div>
   </div>
 
@@ -2830,6 +2836,7 @@ function renderPackages() {
       <td style="color:var(--gray);font-size:.82rem">${p.fecha}</td>
       <td>${pesoDisplay(p)}</td>
       <td>
+        <button onclick="openPackageDetail('${p.id}','paquetes')" style="background:var(--ink);color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer;margin-bottom:4px;display:block;width:100%">Ver</button>
         <button onclick="openHistory('${p.id}')" style="background:none;border:1px solid var(--mist);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer;color:var(--mid);margin-bottom:4px">Historial</button>
         ${p.estado==='Registrado'?`<br><button onclick="openClientEditPkg('${p.id}')" style="background:none;border:1px solid var(--mist);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer;color:var(--mid)">Editar</button>`:''}
       </td>
@@ -2869,8 +2876,113 @@ function renderEntregados() {
       <td>${whTag(p.deposito)}</td>
       <td>${statusBadge(p.estado)}</td>
       <td style="color:var(--gray);font-size:.82rem">${p.fecha}</td>
-      <td><button onclick="openHistory('${p.id}')" style="background:none;border:1px solid var(--mist);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer;color:var(--mid)">Historial</button></td>
+      <td><button onclick="openPackageDetail('${p.id}','entregados')" style="background:var(--ink);color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer;margin-right:4px">Ver</button><button onclick="openHistory('${p.id}')" style="background:none;border:1px solid var(--mist);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer;color:var(--mid)">Historial</button></td>
     </tr>`).join('');
+}
+
+// ─── Detalle de paquete (vista dedicada) ─────────────────────────
+const ESTADO_INFO = {
+  'Registrado':           { desc:'Registraste el paquete. Estamos esperando que llegue a nuestro depósito.', next:'Cuando llegue al depósito te avisamos por email.' },
+  'Recibido en origen':   { desc:'¡Tu paquete llegó a nuestro depósito! Lo estamos procesando.', next:'Pronto lo despachamos hacia Argentina.' },
+  'En depósito':          { desc:'Tu paquete está en nuestro depósito.', next:'Pronto lo despachamos hacia Argentina.' },
+  'En tránsito':          { desc:'Tu paquete va en camino a Argentina. ✈️', next:'Próximo paso: clasificación en Buenos Aires.' },
+  'En viaje':             { desc:'Tu paquete va en camino a Argentina. ✈️', next:'Próximo paso: clasificación en Buenos Aires.' },
+  'Clasificando en BsAs': { desc:'Tu paquete llegó a Buenos Aires y se está clasificando.', next:'Después te avisamos cuando esté listo para entrega.' },
+  'Listo para entrega':   { desc:'Tu paquete está listo para ser entregado. 📦', next:'Coordinamos la entrega a tu domicilio.' },
+  'Entregado':            { desc:'¡Entregado! Gracias por elegir Arbox. ✅', next:'' },
+  'Retenido':             { desc:'Tu paquete está retenido. Te vamos a contactar para resolverlo.', next:'Si tenés dudas, escribinos por WhatsApp.' },
+};
+let detailReturnTab = 'paquetes';
+
+function openPackageDetail(pkgId, from) {
+  const p = packages.find(x => x.id === pkgId);
+  if (!p) return;
+  detailReturnTab = from || 'paquetes';
+  document.querySelectorAll('.tab-panel').forEach(pan => pan.classList.remove('active'));
+  const panel = document.getElementById('tab-detalle');
+  panel.classList.add('active'); panel.classList.remove('fadeIn'); void panel.offsetWidth; panel.classList.add('fadeIn');
+  renderPackageDetail(p);
+  pushPanelState();
+  window.scrollTo(0, 0);
+}
+
+function closePackageDetail() {
+  document.getElementById('tab-detalle').classList.remove('active');
+  const map = { paquetes:'Mis Paquetes', entregados:'Entregados', resumen:'Resumen' };
+  const label = map[detailReturnTab] || 'Mis Paquetes';
+  const side = [...document.querySelectorAll('.sidebar-item')].find(i => i.textContent.includes(label));
+  showTab(detailReturnTab, side || null);
+}
+
+function detailProgress(p) {
+  const histMap = {};
+  (p.historial||[]).forEach(h => { if (!histMap[h.estado]) histMap[h.estado] = h.fecha; });
+  const canon = e => e==='En viaje' ? 'En tránsito' : e==='En depósito' ? 'Recibido en origen' : e;
+  const curIdx = PROG_STEPS.indexOf(canon(p.estado));
+  return PROG_STEPS.map((s, i) => {
+    const done = i < curIdx, active = i === curIdx;
+    const color = done ? '#2e7d32' : active ? 'var(--ink)' : 'var(--silver)';
+    const icon = done ? '✓' : active ? '●' : '○';
+    return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--smoke)">
+      <span style="color:${color};font-weight:700;width:20px;text-align:center;font-size:.95rem">${icon}</span>
+      <span style="flex:1;color:${active?'var(--ink)':'var(--gray)'};font-weight:${active?'700':'400'};font-size:.9rem">${s}</span>
+      <span style="color:var(--gray);font-size:.78rem">${histMap[s]||''}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderPackageDetail(p) {
+  const info = ESTADO_INFO[p.estado] || { desc:'', next:'' };
+  const eta = (p.estado==='En tránsito' && p.fechaEstimadaEntrega) ? p.fechaEstimadaEntrega : '';
+  const pagoTxt = p.pagado ? '<span class="badge badge-green">Pagado</span>'
+    : (p.costo>0 ? '<span class="badge badge-red">Pendiente</span>' : '<span style="color:var(--gray)">—</span>');
+  const docs = (p.documents||[]).length
+    ? (p.documents||[]).map(d=>`<a href="/api/packages/${encodeURIComponent(p.id)}/documents/${d.id}/download" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid var(--mist);border-radius:8px;text-decoration:none;color:var(--ink);font-size:.85rem;margin:0 8px 8px 0">📄 ${d.name||d.savedFileName||'documento'}</a>`).join('')
+    : '<span style="color:var(--gray);font-size:.85rem">Sin documentos.</span>';
+  document.getElementById('detalle-content').innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:6px">
+      <code style="font-size:1rem;color:var(--ink);font-weight:700">${p.id}</code>
+      ${whTag(p.deposito)} ${statusBadge(p.estado)}
+    </div>
+    <div style="font-size:1.15rem;font-weight:800;color:var(--ink);margin-bottom:16px">${p.desc||''}</div>
+    <div class="panel" style="margin-bottom:16px">
+      <div style="font-size:.95rem;color:var(--ink);font-weight:600;margin-bottom:6px">${info.desc}</div>
+      ${info.next?`<div style="font-size:.85rem;color:var(--gray)">👉 ${info.next}</div>`:''}
+      ${eta?`<div style="margin-top:10px;font-size:.9rem;color:var(--ink)">📅 Entrega estimada: <strong>${eta}</strong></div>`:''}
+    </div>
+    <div class="account-section">
+      <div class="panel">
+        <div class="panel-header"><div class="panel-title">Progreso</div></div>
+        ${detailProgress(p)}
+      </div>
+      <div class="panel">
+        <div class="panel-header"><div class="panel-title">Detalle</div></div>
+        <div class="tax-row"><span class="tax-label">Peso</span><span class="tax-val">${p.peso>0?p.peso.toFixed(1)+' kg':'Pendiente'}</span></div>
+        <div class="tax-row"><span class="tax-label">Valor declarado</span><span class="tax-val">${p.valor>0?'USD '+p.valor.toFixed(2):'—'}</span></div>
+        <div class="tax-row"><span class="tax-label">Costo (flete)</span><span class="tax-val">${p.costo>0?'USD '+p.costo.toFixed(2):'—'}</span></div>
+        <div class="tax-row"><span class="tax-label">Pago</span><span class="tax-val">${pagoTxt}</span></div>
+        ${p.remitente?`<div class="tax-row"><span class="tax-label">Remitente</span><span class="tax-val">${p.remitente}</span></div>`:''}
+      </div>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <div class="panel-header"><div class="panel-title">Seguimiento del envío</div></div>
+      <div id="detalle-tracking"><div style="color:var(--gray);font-size:.85rem">Cargando…</div></div>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <div class="panel-header"><div class="panel-title">Documentos</div></div>
+      <div>${docs}</div>
+    </div>`;
+  if (typeof loadDetailTracking === 'function') loadDetailTracking(p);
+  else renderDetailHistorial(p);
+}
+
+function renderDetailHistorial(p) {
+  const el = document.getElementById('detalle-tracking');
+  if (!el) return;
+  const hist = [...(p.historial||[])].reverse();
+  el.innerHTML = hist.length
+    ? hist.map(h=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--smoke);font-size:.85rem"><span>${statusBadge(h.estado)}</span><span style="color:var(--gray)">${h.fecha}</span></div>`).join('')
+    : '<div style="color:var(--gray);font-size:.85rem">Sin historial.</div>';
 }
 
 function renderRecent() {
@@ -2880,7 +2992,7 @@ function renderRecent() {
     tbody.innerHTML=`<tr><td colspan="5"><div class="empty"><div class="empty-icon">◻</div><p>Sin paquetes aún.</p></div></td></tr>`;
     return;
   }
-  tbody.innerHTML = list.map(p=>`<tr>
+  tbody.innerHTML = list.map(p=>`<tr onclick="openPackageDetail('${p.id}','resumen')" style="cursor:pointer">
     <td><code style="font-size:.8rem;color:var(--mid)">${p.id}</code></td>
     <td>${p.desc}</td><td>${whTag(p.deposito)}</td><td>${statusBadge(p.estado)}</td>
     <td>${pesoDisplay(p)}</td></tr>`).join('');
