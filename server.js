@@ -952,6 +952,42 @@ app.post('/api/packages/claim', (req, res) => {
   res.json({ ok: true, package: pkg });
 });
 
+// Seguimiento real (17track) de un paquete — cache liviano de 15 min
+app.get('/api/packages/:id/tracking', async (req, res) => {
+  const { clientId } = req.query;
+  const db  = loadDB();
+  const pkg = db.packages.find(p => p.id === req.params.id);
+  if (!pkg) return res.status(404).json({ available: false, motivo: 'Paquete no encontrado' });
+  if (clientId && pkg.clientId && pkg.clientId !== clientId) {
+    return res.status(403).json({ available: false, motivo: 'No autorizado' });
+  }
+  if (!process.env.TRACK17_API_KEY) return res.json({ available: false, motivo: 'Seguimiento no disponible por ahora.' });
+  if (!pkg.id || pkg.id.startsWith('GC-')) return res.json({ available: false, motivo: 'Este envío no tiene número de seguimiento del courier.' });
+
+  const FRESH = 15 * 60 * 1000;
+  if (pkg.trackCache && (Date.now() - pkg.trackCache.fetchedAt) < FRESH) {
+    const ev = pkg.trackCache.events || [];
+    return res.json({ available: ev.length > 0, carrier: pkg.trackCache.carrier, events: ev, motivo: ev.length ? undefined : 'Todavía no hay eventos del courier.', cached: true });
+  }
+  try {
+    const ti  = await getTrackInfo(pkg.id);
+    const raw = extractAllEvents(ti);
+    const events = raw.map(e => ({
+      fecha:       e.time_iso || e.time_utc || '',
+      descripcion: e.description || '',
+      ubicacion:   e.location || [e.address?.city, e.address?.state, e.address?.country].filter(Boolean).join(', '),
+    })).filter(e => e.descripcion || e.ubicacion);
+    const carrier = ti?.track_info?.tracking?.providers?.[0]?.provider?.name || '';
+    pkg.trackCache = { fetchedAt: Date.now(), carrier, events };
+    saveDB(db, 'track-cache');
+    if (!events.length) return res.json({ available: false, motivo: 'Todavía no hay eventos del courier para este envío.' });
+    res.json({ available: true, carrier, events });
+  } catch (e) {
+    console.error('[tracking]', e.message);
+    res.json({ available: false, motivo: 'No pudimos obtener el seguimiento en este momento.' });
+  }
+});
+
 // ─── Editar paquete propio (cliente) — solo en estado "Registrado" ───────────
 app.put('/api/packages/:id/client-edit', async (req, res) => {
   const { clientId, desc, deposito, tracking, peso, valor, remitente, obs } = req.body;
