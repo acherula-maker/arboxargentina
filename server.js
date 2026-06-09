@@ -801,9 +801,9 @@ app.post('/api/auth/login', (req, res) => {
 
 // ─── Registro público ────────────────────────────────────────────────────────
 app.post('/api/auth/register', (req, res) => {
-  const { name, email, username, password } = req.body;
-  if (!name || !username || !password || !email) {
-    return res.status(400).json({ error: 'Todos los campos son obligatorios' });
+  const { name, email, username, password, phone } = req.body;
+  if (!name || !username || !password || !email || !phone) {
+    return res.status(400).json({ error: 'Todos los campos son obligatorios (incluido el teléfono)' });
   }
   if (password.length < 6) {
     return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
@@ -819,6 +819,7 @@ app.post('/api/auth/register', (req, res) => {
     id: Date.now().toString(),
     name,
     email,
+    phone,
     username,
     password,
   };
@@ -885,6 +886,70 @@ app.post('/api/packages', async (req, res) => {
   }
 
   res.status(201).json({ ok: true, package: pkg });
+});
+
+// ─── Paquetes "No asignados" (intake Miami) ─────────────────────────────────
+// Crear un paquete no asignado desde el escáner (cuando el tracking no matchea)
+app.post('/api/admin/unassigned', requireAdmin, (req, res) => {
+  const { tracking, deposito, destinatario, desc } = req.body;
+  const trackingId = (tracking || '').trim();
+  if (!trackingId) return res.status(400).json({ error: 'Falta el tracking' });
+  const db = loadDB();
+  if (db.packages.find(p => p.id === trackingId)) {
+    return res.status(409).json({ error: 'Ese tracking ya está registrado', duplicate: true });
+  }
+  const hoy = new Date().toISOString().split('T')[0];
+  const pkg = {
+    id: trackingId, clientId: null, unassigned: true,
+    destinatario: destinatario || '', deposito: deposito || 'Miami',
+    desc: desc || 'Paquete recibido (sin asignar)',
+    peso: 0, valor: 0, costo: 0, remitente: '', obs: '',
+    estado: 'Recibido en origen', fecha: hoy,
+    pagado: false, notificado: false, documents: null,
+    historial: [{ estado: 'Recibido en origen', fecha: hoy, ts: Date.now() }],
+  };
+  db.packages.push(pkg);
+  saveDB(db, 'scan-unassigned');
+  res.status(201).json({ ok: true, package: pkg });
+});
+
+// Asignar un paquete a un cliente (+ email de recibido)
+app.put('/api/admin/packages/:id/assign', requireAdmin, async (req, res) => {
+  const { clientId } = req.body;
+  const db  = loadDB();
+  const pkg = db.packages.find(p => p.id === req.params.id);
+  if (!pkg) return res.status(404).json({ error: 'Paquete no encontrado' });
+  const client = db.clients.find(c => c.id === clientId);
+  if (!client) return res.status(404).json({ error: 'Cliente no encontrado' });
+  pkg.clientId = clientId;
+  pkg.unassigned = false;
+  saveDB(db, 'assign-package');
+  if (client.email && !pkg.notificado) {
+    try {
+      await sendArrivalEmail(client, pkg, pkg.ultimoEvento || 'Recibido en depósito');
+      pkg.notificado = true; saveDB(db, 'assign-email');
+    } catch (e) { console.error('[assign] email:', e.message); }
+  }
+  res.json({ ok: true, package: pkg });
+});
+
+// Reclamo del cliente: asigna un paquete no asignado que matchee el tracking
+app.post('/api/packages/claim', (req, res) => {
+  const { clientId, tracking } = req.body;
+  const trackingId = (tracking || '').trim();
+  if (!clientId || !trackingId) return res.status(400).json({ error: 'Faltan datos' });
+  const db = loadDB();
+  const client = db.clients.find(c => c.id === clientId);
+  if (!client) return res.status(404).json({ error: 'Cliente no encontrado' });
+  const pkg = db.packages.find(p => p.id === trackingId);
+  if (!pkg) return res.status(404).json({ error: 'No encontramos un paquete con ese tracking.' });
+  if (pkg.clientId && !pkg.unassigned) {
+    return res.status(409).json({ error: 'Ese paquete ya está asignado a una cuenta.' });
+  }
+  pkg.clientId = clientId;
+  pkg.unassigned = false;
+  saveDB(db, 'claim-package');
+  res.json({ ok: true, package: pkg });
 });
 
 // ─── Editar paquete propio (cliente) — solo en estado "Registrado" ───────────
@@ -1199,7 +1264,7 @@ app.put('/api/admin/clients/:id', requireAdmin, (req, res) => {
   const db  = loadDB();
   const idx = db.clients.findIndex(c => c.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Cliente no encontrado' });
-  const allowed = ['name','email','username','password','cuit'];
+  const allowed = ['name','email','phone','username','password','cuit'];
   allowed.forEach(k => { if (req.body[k] !== undefined) db.clients[idx][k] = req.body[k]; });
   saveDB(db, 'admin-edit-client');
   const { password: _pw, ...clientData } = db.clients[idx];
@@ -1224,8 +1289,8 @@ app.post('/api/admin/clients', requireAdmin, (req, res) => {
   if (!name || !username || !password) return res.status(400).json({ error: 'Faltan campos' });
   const db = loadDB();
   if (db.clients.find(c => c.username?.toLowerCase() === username.toLowerCase())) return res.status(400).json({ error: 'Usuario ya existe' });
-  const { cuit } = req.body;
-  const newClient = { id: Date.now().toString(), name, email: email||'', cuit: cuit||'', username, password };
+  const { cuit, phone } = req.body;
+  const newClient = { id: Date.now().toString(), name, email: email||'', phone: phone||'', cuit: cuit||'', username, password };
   db.clients.push(newClient);
   saveDB(db, 'admin-create-client');
   const { password: _pw, ...clientData } = newClient;
