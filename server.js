@@ -1375,17 +1375,30 @@ app.post('/api/admin/liquidacion', requireAdmin, async (req, res) => {
     items.push(pkg);
   });
 
-  // Registrar cargo en cuenta corriente
+  // Token de entrega (QR) — los paquetes pasan a "Entregado" al escanearlo
+  const ref = `LIQ-${Date.now().toString().slice(-6)}`;
+  const deliveryToken = crypto.randomBytes(16).toString('hex');
+  const itemsSnap = items.map(p => ({ id:p.id, desc:p.desc, deposito:p.deposito, peso:p.peso, costo:p.costo }));
+
+  // Registrar cargo en cuenta corriente (con snapshot de ítems para el PDF)
   if (totalCosto > 0) {
     db.movements.push({
       fecha:    new Date().toISOString().split('T')[0],
       concepto: 'Liquidación flete + almacenaje',
-      ref:      `LIQ-${Date.now().toString().slice(-6)}`,
+      ref,
       tipo:     'Cargo',
       monto:    totalCosto,
       clientId,
+      items:    itemsSnap,
+      totalPeso,
+      deliveryToken,
     });
   }
+  db.deliveries = db.deliveries || {};
+  db.deliveries[deliveryToken] = {
+    clientId, ref, packageIds: items.map(p => p.id),
+    delivered: false, deliveredAt: null, createdAt: Date.now(),
+  };
 
   saveDB(db, 'admin-liquidacion');
 
@@ -1445,11 +1458,11 @@ app.post('/api/admin/liquidacion', requireAdmin, async (req, res) => {
       console.log(`[email] Liquidación enviada a ${client.email} — USD ${totalCosto.toFixed(2)}`);
     } catch (err) {
       console.error('[email] Error enviando liquidación:', err.message);
-      return res.json({ ok: true, emailSent: false, totalCosto, totalPeso });
+      return res.json({ ok: true, emailSent: false, totalCosto, totalPeso, deliveryToken });
     }
   }
 
-  res.json({ ok: true, emailSent: !!(sendEmail && client.email), totalCosto, totalPeso });
+  res.json({ ok: true, emailSent: !!(sendEmail && client.email), totalCosto, totalPeso, deliveryToken });
 });
 
 // Todos los movimientos globales
@@ -1784,6 +1797,60 @@ app.post('/api/track', async (req, res) => {
     console.error('[capi] Error:', err.response && err.response.data ? JSON.stringify(err.response.data) : err.message);
     res.json({ ok: false, error: 'capi_failed' }); // nunca rompemos el front
   }
+});
+
+// ─── Confirmación de entrega por QR (público, sin login) ─────────────────────
+app.get('/api/entrega/:token', (req, res) => {
+  const db = loadDB();
+  const d = (db.deliveries || {})[req.params.token];
+  if (!d) return res.status(404).json({ error: 'Entrega no encontrada' });
+  const client = db.clients.find(c => c.id === d.clientId);
+  const pkgs = d.packageIds.map(id => {
+    const p = db.packages.find(x => x.id === id);
+    return p ? { id: p.id, desc: p.desc, estado: p.estado } : { id, desc: '', estado: '' };
+  });
+  res.json({ ref: d.ref, cliente: client?.name || '', delivered: d.delivered, deliveredAt: d.deliveredAt, packages: pkgs });
+});
+
+app.post('/api/entrega/:token', (req, res) => {
+  const db = loadDB();
+  const d = (db.deliveries || {})[req.params.token];
+  if (!d) return res.status(404).json({ error: 'Entrega no encontrada' });
+  if (d.delivered) return res.json({ ok: true, already: true, deliveredAt: d.deliveredAt });
+  const hoy = new Date().toISOString().split('T')[0];
+  d.packageIds.forEach(id => {
+    const p = db.packages.find(x => x.id === id);
+    if (p && p.estado !== 'Entregado') {
+      p.estado = 'Entregado';
+      if (!p.historial) p.historial = [];
+      p.historial.push({ estado: 'Entregado', fecha: hoy, ts: Date.now() });
+    }
+  });
+  d.delivered = true; d.deliveredAt = Date.now();
+  saveDB(db, 'entrega-qr');
+  res.json({ ok: true, deliveredAt: d.deliveredAt });
+});
+
+// Página pública que abre el repartidor al escanear el QR
+app.get('/entrega/:token', (req, res) => {
+  const token = req.params.token.replace(/[^a-f0-9]/gi, '');
+  res.type('html').send(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Confirmar entrega — Arbox</title>
+<style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f4f5;margin:0;padding:20px;color:#1a1a1a}.card{max-width:440px;margin:24px auto;background:#fff;border-radius:14px;padding:24px;box-shadow:0 4px 24px rgba(0,0,0,.08)}h1{font-size:1.2rem;margin:0 0 4px}.muted{color:#888;font-size:.85rem}.pkg{padding:10px 0;border-bottom:1px solid #eee;font-size:.9rem}.btn{display:block;width:100%;padding:14px;border:none;border-radius:10px;background:#1a1a1a;color:#fff;font-size:1rem;font-weight:700;cursor:pointer;margin-top:16px}.btn:disabled{opacity:.5}.ok{background:#e8f5e9;color:#2e7d32;padding:14px;border-radius:10px;text-align:center;font-weight:700;margin-top:16px}</style></head>
+<body><div class="card"><h1>Confirmar entrega</h1><div class="muted" id="ref">—</div><div id="list" style="margin-top:14px"></div><div id="action"></div></div>
+<script>
+var token=${JSON.stringify(token)};
+function load(){fetch('/api/entrega/'+token).then(function(r){return r.json();}).then(function(d){
+  if(d.error){document.querySelector('.card').innerHTML='<h1>Entrega no encontrada</h1><div class="muted">El c\\u00f3digo no es v\\u00e1lido.</div>';return;}
+  document.getElementById('ref').textContent='Cliente: '+(d.cliente||'\\u2014')+'  \\u00b7  '+d.ref;
+  document.getElementById('list').innerHTML=d.packages.map(function(p){return '<div class="pkg"><strong>'+p.id+'</strong><br><span class="muted">'+(p.desc||'')+' \\u2014 '+p.estado+'</span></div>';}).join('');
+  var a=document.getElementById('action');
+  if(d.delivered){a.innerHTML='<div class="ok">\\u2713 Ya entregado</div>';}
+  else{a.innerHTML='<button class="btn" id="b" onclick="confirmar()">\\u2705 Confirmar entrega</button>';}
+}).catch(function(){document.querySelector('.card').innerHTML='<h1>Error</h1><div class="muted">Prob\\u00e1 de nuevo.</div>';});}
+function confirmar(){var b=document.getElementById('b');b.disabled=true;b.textContent='Confirmando...';
+  fetch('/api/entrega/'+token,{method:'POST'}).then(function(r){return r.json();}).then(function(){document.getElementById('action').innerHTML='<div class="ok">\\u2713 \\u00a1Entrega confirmada!</div>';}).catch(function(){b.disabled=false;b.textContent='\\u2705 Confirmar entrega';});}
+load();
+</script></body></html>`);
 });
 
 // ─── Ruta raíz → index.html ───────────────────────────────────────────────────

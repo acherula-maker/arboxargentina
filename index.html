@@ -836,6 +836,14 @@ footer a:hover{color:rgba(255,255,255,.75)}
     s.onload = cb;
     document.head.appendChild(s);
   }
+  function loadQRLib(cb) {
+    if (window.qrcode) { cb(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js';
+    s.onload = cb;
+    s.onerror = cb; // si falla, seguimos sin QR
+    document.head.appendChild(s);
+  }
   </script>
 </head>
 <body>
@@ -4150,6 +4158,7 @@ function enviarLiquidacionWhatsApp() {
   window.open('https://wa.me/' + phone + '?text=' + encodeURIComponent(msg), '_blank');
 }
 
+let lastLiq = null; // { token, clientId } de la última liquidación guardada (para el QR del PDF)
 async function sendLiquidacion(withEmail) {
   const btnId = withEmail ? 'btn-liq-email' : 'btn-liq-save';
   const btn = document.getElementById(btnId);
@@ -4160,6 +4169,7 @@ async function sendLiquidacion(withEmail) {
   data.sendEmail = withEmail;
   try {
     const res = await adminFetch('/api/admin/liquidacion', { method:'POST', body: data });
+    if (res.deliveryToken) lastLiq = { token: res.deliveryToken, clientId: data.clientId };
     if (withEmail && data.selectedIds.length) {
       await adminFetch('/api/admin/packages/bulk', {
         method: 'PUT',
@@ -4184,9 +4194,24 @@ async function sendLiquidacion(withEmail) {
 }
 
 function downloadLiquidacionPDF() {
+  loadQRLib(_generateLiquidacionPDF);
+}
+function _generateLiquidacionPDF() {
   const btn = document.getElementById('btn-liq-pdf');
   btn.disabled = true;
   btn.textContent = 'Generando...';
+  // QR de entrega (si la liquidación de este cliente ya fue guardada en esta sesión)
+  const liqClientId = document.getElementById('liq-clientId').value;
+  let qrHtml = '';
+  if (window.qrcode && lastLiq && lastLiq.clientId === liqClientId && lastLiq.token) {
+    try {
+      const qr = qrcode(0, 'M');
+      qr.addData(location.origin + '/entrega/' + lastLiq.token);
+      qr.make();
+      const dataUrl = qr.createDataURL(5, 8);
+      qrHtml = `<div style="text-align:center;margin-top:28px"><img src="${dataUrl}" style="width:150px;height:150px"><div style="color:#888;font-size:.78rem;margin-top:6px">El repartidor escanea este QR al entregar para confirmar la entrega.</div></div>`;
+    } catch (e) {}
+  }
   const clientName = document.getElementById('liq-client-name').textContent;
   const clientEmail = document.getElementById('liq-client-email').textContent;
   const rows = [];
@@ -4243,6 +4268,7 @@ function downloadLiquidacionPDF() {
       <tbody>${rows.map(r=>`<tr><td>${r.tracking}</td><td>${r.desc}</td><td>${r.deposito}</td><td>${parseFloat(r.peso).toFixed(1)} kg</td><td>USD ${parseFloat(r.costo).toFixed(2)}</td></tr>`).join('')}</tbody>
       <tr class="total-row"><td colspan="3">TOTAL</td><td>${totalPeso.toFixed(1)} kg</td><td>USD ${totalCosto.toFixed(2)}</td></tr>
     </table>
+    ${qrHtml}
     <div class="footer">Arbox Argentina — 10 años de trayectoria en Comercio Exterior<br>Este documento es una liquidación informativa.</div>
     <script>window.onload=()=>window.print();<\/script>
   </body></html>`;
