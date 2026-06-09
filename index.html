@@ -1435,6 +1435,7 @@ footer a:hover{color:rgba(255,255,255,.75)}
         <div class="sidebar-item" onclick="showTab('paquetes', this)"><span class="icon">📦</span> Mis Paquetes</div>
         <div class="sidebar-item" onclick="showTab('entregados', this)"><span class="icon">✅</span> Entregados</div>
         <div class="sidebar-item" onclick="showTab('cuenta', this)"><span class="icon">💳</span> Cuenta Corriente</div>
+        <div class="sidebar-item" onclick="showTab('documentos', this)"><span class="icon">📄</span> Documentos</div>
         <div class="sidebar-item" onclick="showTab('registrar', this)"><span class="icon">➕</span> Registrar Paquete</div>
       </div>
       <div class="sidebar-section">
@@ -1571,6 +1572,23 @@ footer a:hover{color:rgba(255,255,255,.75)}
               <tbody id="cc-table-body"><tr><td colspan="5"><div class="empty"><div class="empty-icon">◻</div><p>Sin movimientos.</p></div></td></tr></tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      <!-- DOCUMENTOS -->
+      <div class="tab-panel fadeIn" id="tab-documentos">
+        <div style="font-size:1.1rem;font-weight:800;color:var(--ink);margin-bottom:6px;letter-spacing:-.03em">Documentos</div>
+        <p style="color:var(--gray);font-size:.875rem;margin-bottom:20px">Descargá tus liquidaciones, tu estado de cuenta y los archivos de tus paquetes.</p>
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-header"><div class="panel-title">Estado de cuenta</div><button class="panel-action" onclick="downloadEstadoCuentaPDF()">📄 Descargar PDF</button></div>
+        </div>
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-header"><div class="panel-title">Liquidaciones</div></div>
+          <div id="docs-liquidaciones"><p style="color:var(--gray);font-size:.85rem">—</p></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><div class="panel-title">Archivos de paquetes</div></div>
+          <div id="docs-archivos"><p style="color:var(--gray);font-size:.85rem">—</p></div>
         </div>
       </div>
 
@@ -2804,6 +2822,7 @@ function showTab(name, el) {
   if (el) el.classList.add('active');
   if (name==='paquetes') renderPackages();
   if (name==='entregados') renderEntregados();
+  if (name==='documentos') renderDocumentos();
   if (name==='cuenta')   renderCC();
   if (name==='registrar') clearRegForm();
 }
@@ -4278,6 +4297,60 @@ function _generateLiquidacionPDF() {
   w.document.close();
   btn.disabled = false;
   btn.textContent = '📄 Descargar PDF';
+}
+
+// ─── Centro de documentos (cliente) ──────────────────────────────
+function renderDocumentos() {
+  // Archivos subidos a paquetes
+  const withDocs = packages.filter(p => (p.documents||[]).length);
+  document.getElementById('docs-archivos').innerHTML = withDocs.length
+    ? withDocs.map(p=>`<div style="padding:10px 0;border-bottom:1px solid var(--smoke)">
+        <div style="font-weight:600;font-size:.88rem">${p.desc} <code style="font-size:.72rem;color:var(--gray)">${p.id}</code></div>
+        <div style="margin-top:6px">${(p.documents||[]).map(d=>`<a href="/api/packages/${encodeURIComponent(p.id)}/documents/${d.id}/download" target="_blank" style="display:inline-flex;gap:6px;padding:6px 10px;border:1px solid var(--mist);border-radius:8px;text-decoration:none;color:var(--ink);font-size:.82rem;margin:0 6px 6px 0">📄 ${d.name||d.savedFileName||'documento'}</a>`).join('')}</div>
+      </div>`).join('')
+    : '<p style="color:var(--gray);font-size:.85rem">Todavía no hay archivos subidos a tus paquetes.</p>';
+
+  // Liquidaciones (con detalle para PDF)
+  const liqs = ccMovements.filter(m => (m.ref||'').startsWith('LIQ-'));
+  document.getElementById('docs-liquidaciones').innerHTML = liqs.length
+    ? liqs.map(m=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--smoke)">
+        <div><div style="font-weight:600;font-size:.86rem">${m.concepto}</div><div style="color:var(--gray);font-size:.78rem">${m.fecha} · ${m.ref} · USD ${Math.abs(m.monto).toFixed(2)}</div></div>
+        <button onclick="downloadLiqMovementPDF(${ccMovements.indexOf(m)})" style="background:var(--ink);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:.8rem;cursor:pointer;white-space:nowrap">📄 PDF</button>
+      </div>`).join('')
+    : '<p style="color:var(--gray);font-size:.85rem">Todavía no tenés liquidaciones.</p>';
+}
+
+function _printDoc(title, inner) {
+  const css = `body{font-family:'Segoe UI',sans-serif;margin:0;padding:40px;color:#1a1a1a}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:18px;border-bottom:2px solid #0a0a0a}.logo{font-size:1.4rem;font-weight:900;letter-spacing:-.03em}.logo em{font-style:normal;color:#888;font-weight:400;font-size:.8rem;margin-left:6px}.date{color:#888;font-size:.85rem}table{width:100%;border-collapse:collapse;margin:16px 0}th{background:#0a0a0a;color:#fff;padding:9px 12px;text-align:left;font-size:.76rem;text-transform:uppercase}td{padding:9px 12px;border-bottom:1px solid #eee;font-size:.86rem}.total-row{background:#0a0a0a;color:#fff;font-weight:800}.total-row td{border:none}.footer{margin-top:36px;padding-top:14px;border-top:1px solid #ddd;color:#888;font-size:.78rem;text-align:center}@media print{body{padding:20px}@page{margin:15mm}}`;
+  const today = new Date().toLocaleDateString('es-AR',{year:'numeric',month:'long',day:'numeric'});
+  const html = `<html><head><meta charset="UTF-8"><title>${title}</title><style>${css}</style></head><body><div class="header"><div class="logo">Arbox Argentina<em>${title}</em></div><div class="date">${today}</div></div>${inner}<div class="footer">Arbox Argentina — 10 años de trayectoria en Comercio Exterior</div><script>window.onload=()=>window.print();<\/script></body></html>`;
+  const w = window.open('','_blank'); w.document.write(html); w.document.close();
+}
+
+function downloadLiqMovementPDF(idx) {
+  const m = ccMovements[idx]; if (!m) return;
+  const items = m.items || [];
+  if (!items.length) { alert('Esta liquidación no tiene detalle disponible para PDF.'); return; }
+  const cli = currentClient?.name || '';
+  const rows = items.map(it=>`<tr><td>${it.id}</td><td>${it.desc||''}</td><td>${it.deposito||''}</td><td>${Number(it.peso||0).toFixed(1)} kg</td><td>USD ${Number(it.costo||0).toFixed(2)}</td></tr>`).join('');
+  const tp = items.reduce((a,x)=>a+Number(x.peso||0),0);
+  const tc = items.reduce((a,x)=>a+Number(x.costo||0),0);
+  const inner = `<div style="margin-bottom:14px"><strong>${cli}</strong><br><span style="color:#888;font-size:.85rem">${m.ref} · ${m.fecha}</span></div>
+    <table><thead><tr><th>Tracking</th><th>Descripción</th><th>Depósito</th><th>Peso</th><th>Costo</th></tr></thead><tbody>${rows}</tbody>
+    <tr class="total-row"><td colspan="3">TOTAL</td><td>${tp.toFixed(1)} kg</td><td>USD ${tc.toFixed(2)}</td></tr></table>`;
+  _printDoc('Liquidación', inner);
+}
+
+function downloadEstadoCuentaPDF() {
+  const movs = [...ccMovements];
+  if (!movs.length) { alert('No hay movimientos para mostrar.'); return; }
+  const cli = currentClient?.name || '';
+  const saldo = movs.reduce((a,m)=>a+m.monto,0);
+  const rows = movs.map(m=>`<tr><td>${m.fecha}</td><td>${m.concepto}</td><td>${m.ref||''}</td><td>${m.tipo}</td><td>${m.tipo==='Pago'?'−':''}USD ${Math.abs(m.monto).toFixed(2)}</td></tr>`).join('');
+  const inner = `<div style="margin-bottom:14px"><strong>${cli}</strong></div>
+    <table><thead><tr><th>Fecha</th><th>Concepto</th><th>Ref</th><th>Tipo</th><th>Monto</th></tr></thead><tbody>${rows}</tbody>
+    <tr class="total-row"><td colspan="4">SALDO</td><td>USD ${saldo.toFixed(2)}</td></tr></table>`;
+  _printDoc('Estado de cuenta', inner);
 }
 
 // ─── PDF Cotización (solo superadmin) ────────────────────────────
