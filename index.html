@@ -4418,13 +4418,13 @@ async function sendLiquidacion(withEmail) {
     if (withEmail && data.selectedIds.length) {
       await adminFetch('/api/admin/packages/bulk', {
         method: 'PUT',
-        body: { ids: data.selectedIds, fields: { estado: 'Entregado' } }
+        body: { ids: data.selectedIds, fields: { estado: 'Listo para entrega' } }
       });
     }
     closeModal('modal-liquidacion');
     await loadAdminData();
     if (withEmail && res.emailSent) {
-      alert(`Liquidación enviada por email. ${data.selectedIds.length} paquete(s) marcados como "Entregado".`);
+      alert(`Liquidación enviada por email. ${data.selectedIds.length} paquete(s) marcados como "Listo para entrega".`);
     } else if (withEmail && !res.emailSent) {
       alert('Liquidación guardada. No se pudo enviar el email (verificá la config SMTP).');
     } else {
