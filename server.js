@@ -1219,7 +1219,8 @@ app.get('/api/admin/movements', requireAdmin, (req, res) => {
   const db = loadDB();
   const enriched = db.movements.map(m => {
     const client = db.clients.find(c => c.id === m.clientId);
-    return { ...m, clientName: client?.name || m.clientId };
+    const del = m.deliveryToken ? (db.deliveries || {})[m.deliveryToken] : null;
+    return { ...m, clientName: client?.name || m.clientId, delivered: del ? !!del.delivered : null };
   });
   res.json(enriched);
 });
@@ -1353,6 +1354,53 @@ app.post('/api/admin/payments', requireAdmin, (req, res) => {
 });
 
 // Liquidación: actualizar costos y enviar email al cliente
+// Arma el HTML del email de liquidación (reutilizado por crear y reenviar)
+function buildLiquidacionEmailHtml(client, items, totalPeso, totalCosto) {
+  const flag = { Miami: '🇺🇸', Madrid: '🇪🇸', China: '🇨🇳' };
+  const rows = items.map(p => `
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem">${p.id}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem">${p.desc}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem">${flag[p.deposito]||''} ${p.deposito}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem;text-align:right">${Number(p.peso||0)} kg</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem;text-align:right;font-weight:700">USD ${Number(p.costo||0).toFixed(2)}</td>
+      </tr>`).join('');
+
+  return `
+    <!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/></head>
+    <body style="margin:0;padding:0;background:#f5f5f5;font-family:'Segoe UI',sans-serif">
+      <div style="max-width:600px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e5e5">
+        <div style="background:#0a0a0a;padding:28px 32px">
+          <div style="color:#fff;font-size:1.2rem;font-weight:800">Arbox Argentina</div>
+          <div style="color:rgba(255,255,255,.5);font-size:.82rem;margin-top:4px">Liquidación de paquetes</div>
+        </div>
+        <div style="padding:32px">
+          <p style="color:#555;font-size:.95rem">Hola <strong style="color:#0a0a0a">${client.name}</strong>,</p>
+          <p style="color:#555;font-size:.9rem">Te enviamos el detalle de tu liquidación:</p>
+          <table style="width:100%;border-collapse:collapse;margin:20px 0">
+            <thead><tr style="background:#f5f5f5">
+              <th style="padding:10px 12px;text-align:left;font-size:.75rem;text-transform:uppercase;color:#888">Tracking</th>
+              <th style="padding:10px 12px;text-align:left;font-size:.75rem;text-transform:uppercase;color:#888">Descripción</th>
+              <th style="padding:10px 12px;text-align:left;font-size:.75rem;text-transform:uppercase;color:#888">Depósito</th>
+              <th style="padding:10px 12px;text-align:right;font-size:.75rem;text-transform:uppercase;color:#888">Peso</th>
+              <th style="padding:10px 12px;text-align:right;font-size:.75rem;text-transform:uppercase;color:#888">Costo</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+            <tfoot><tr style="background:#0a0a0a">
+              <td colspan="3" style="padding:12px;color:#fff;font-weight:800;font-size:.9rem">TOTAL</td>
+              <td style="padding:12px;color:#fff;font-weight:700;text-align:right;font-size:.9rem">${totalPeso.toFixed(1)} kg</td>
+              <td style="padding:12px;color:#fff;font-weight:800;text-align:right;font-size:1rem">USD ${totalCosto.toFixed(2)}</td>
+            </tr></tfoot>
+          </table>
+          <p style="color:#555;font-size:.88rem;line-height:1.7">Para coordinar el pago, contactanos por WhatsApp o respondé a este email.</p>
+        </div>
+        <div style="background:#f5f5f5;padding:18px 32px;border-top:1px solid #eee">
+          <p style="color:#aaa;font-size:.75rem;margin:0;text-align:center">Arbox Argentina — 10 años de trayectoria en Comercio Exterior</p>
+        </div>
+      </div>
+    </body></html>`;
+}
+
 app.post('/api/admin/liquidacion', requireAdmin, async (req, res) => {
   const { clientId, packages: pkgUpdates, sendEmail } = req.body;
   if (!clientId || !Array.isArray(pkgUpdates)) return res.status(400).json({ error: 'Datos inválidos' });
@@ -1404,49 +1452,7 @@ app.post('/api/admin/liquidacion', requireAdmin, async (req, res) => {
 
   // Enviar email si se pidió
   if (sendEmail && client.email) {
-    const flag = { Miami: '🇺🇸', Madrid: '🇪🇸', China: '🇨🇳' };
-    const rows = items.map(p => `
-      <tr>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem">${p.id}</td>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem">${p.desc}</td>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem">${flag[p.deposito]||''} ${p.deposito}</td>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem;text-align:right">${p.peso} kg</td>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem;text-align:right;font-weight:700">USD ${p.costo.toFixed(2)}</td>
-      </tr>`).join('');
-
-    const html = `
-    <!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/></head>
-    <body style="margin:0;padding:0;background:#f5f5f5;font-family:'Segoe UI',sans-serif">
-      <div style="max-width:600px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e5e5">
-        <div style="background:#0a0a0a;padding:28px 32px">
-          <div style="color:#fff;font-size:1.2rem;font-weight:800">Arbox Argentina</div>
-          <div style="color:rgba(255,255,255,.5);font-size:.82rem;margin-top:4px">Liquidación de paquetes</div>
-        </div>
-        <div style="padding:32px">
-          <p style="color:#555;font-size:.95rem">Hola <strong style="color:#0a0a0a">${client.name}</strong>,</p>
-          <p style="color:#555;font-size:.9rem">Te enviamos el detalle de tu liquidación:</p>
-          <table style="width:100%;border-collapse:collapse;margin:20px 0">
-            <thead><tr style="background:#f5f5f5">
-              <th style="padding:10px 12px;text-align:left;font-size:.75rem;text-transform:uppercase;color:#888">Tracking</th>
-              <th style="padding:10px 12px;text-align:left;font-size:.75rem;text-transform:uppercase;color:#888">Descripción</th>
-              <th style="padding:10px 12px;text-align:left;font-size:.75rem;text-transform:uppercase;color:#888">Depósito</th>
-              <th style="padding:10px 12px;text-align:right;font-size:.75rem;text-transform:uppercase;color:#888">Peso</th>
-              <th style="padding:10px 12px;text-align:right;font-size:.75rem;text-transform:uppercase;color:#888">Costo</th>
-            </tr></thead>
-            <tbody>${rows}</tbody>
-            <tfoot><tr style="background:#0a0a0a">
-              <td colspan="3" style="padding:12px;color:#fff;font-weight:800;font-size:.9rem">TOTAL</td>
-              <td style="padding:12px;color:#fff;font-weight:700;text-align:right;font-size:.9rem">${totalPeso.toFixed(1)} kg</td>
-              <td style="padding:12px;color:#fff;font-weight:800;text-align:right;font-size:1rem">USD ${totalCosto.toFixed(2)}</td>
-            </tr></tfoot>
-          </table>
-          <p style="color:#555;font-size:.88rem;line-height:1.7">Para coordinar el pago, contactanos por WhatsApp o respondé a este email.</p>
-        </div>
-        <div style="background:#f5f5f5;padding:18px 32px;border-top:1px solid #eee">
-          <p style="color:#aaa;font-size:.75rem;margin:0;text-align:center">Arbox Argentina — 10 años de trayectoria en Comercio Exterior</p>
-        </div>
-      </div>
-    </body></html>`;
+    const html = buildLiquidacionEmailHtml(client, items, totalPeso, totalCosto);
 
     try {
       await transporter.sendMail({
@@ -1465,14 +1471,42 @@ app.post('/api/admin/liquidacion', requireAdmin, async (req, res) => {
   res.json({ ok: true, emailSent: !!(sendEmail && client.email), totalCosto, totalPeso, deliveryToken });
 });
 
-// Todos los movimientos globales
-app.get('/api/admin/movements', requireAdmin, (req, res) => {
+// Reenviar por email una liquidación ya existente (mismo documento: no crea cargo ni cambia estados)
+app.post('/api/admin/liquidacion/:ref/resend', requireAdmin, async (req, res) => {
   const db = loadDB();
-  const enriched = db.movements.map(m => {
-    const client = db.clients.find(c => c.id === m.clientId);
-    return { ...m, clientName: client?.name || m.clientId };
-  });
-  res.json(enriched);
+  const mov = db.movements.find(m => m.ref === req.params.ref && (m.ref || '').startsWith('LIQ-'));
+  if (!mov) return res.status(404).json({ error: 'Liquidación no encontrada' });
+  const client = db.clients.find(c => c.id === mov.clientId);
+  if (!client) return res.status(404).json({ error: 'Cliente no encontrado' });
+  if (!client.email) return res.json({ ok: true, emailSent: false, reason: 'sin-email' });
+
+  // Detalle desde el snapshot guardado; fallback a los paquetes del token de entrega
+  let items = Array.isArray(mov.items) ? mov.items : [];
+  if (!items.length && mov.deliveryToken && (db.deliveries || {})[mov.deliveryToken]) {
+    items = (db.deliveries[mov.deliveryToken].packageIds || [])
+      .map(id => db.packages.find(p => p.id === id))
+      .filter(Boolean)
+      .map(p => ({ id: p.id, desc: p.desc, deposito: p.deposito, peso: p.peso, costo: p.costo }));
+  }
+  if (!items.length) return res.status(400).json({ error: 'La liquidación no tiene detalle para reenviar' });
+
+  const totalCosto = items.reduce((a, p) => a + Number(p.costo || 0), 0);
+  const totalPeso  = items.reduce((a, p) => a + Number(p.peso || 0), 0);
+  const html = buildLiquidacionEmailHtml(client, items, totalPeso, totalCosto);
+
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM || 'Arbox Argentina <noreply@arboxargentina.com>',
+      to: client.email,
+      subject: `Liquidación de paquetes — USD ${totalCosto.toFixed(2)} — Arbox Argentina`,
+      html,
+    });
+    console.log(`[email] Reenvío liquidación ${mov.ref} a ${client.email}`);
+    return res.json({ ok: true, emailSent: true, to: client.email });
+  } catch (err) {
+    console.error('[email] Error reenviando liquidación:', err.message);
+    return res.json({ ok: true, emailSent: false, reason: 'smtp-error' });
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════

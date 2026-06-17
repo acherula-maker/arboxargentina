@@ -1710,6 +1710,7 @@ footer a:hover{color:rgba(255,255,255,.75)}
       <div class="admin-nav-item" onclick="showAdminSection('nuevo-cliente',this)">＋ Nuevo cliente</div>
       <div class="admin-nav-sep">Finanzas</div>
       <div class="admin-nav-item" onclick="showAdminSection('recibos',this)">🧾 Recibos de pago</div>
+      <div class="admin-nav-item" onclick="showAdminSection('liquidaciones',this)">📄 Liquidaciones</div>
       <div class="admin-nav-item" onclick="showAdminSection('cta-cte',this)">📊 Cta. Corriente global</div>
     </div>
 
@@ -1975,6 +1976,24 @@ footer a:hover{color:rgba(255,255,255,.75)}
         </div>
       </div>
 
+      <!-- LIQUIDACIONES (historial) -->
+      <div class="admin-section" id="adm-liquidaciones">
+        <div class="admin-title">Liquidaciones</div>
+        <div class="admin-sub">Historial de todas las liquidaciones. Reenviá por email o WhatsApp, o reimprimí el PDF.</div>
+        <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
+          <input type="text" id="liq-hist-search" placeholder="Buscar por cliente, N° o fecha..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:280px;font-family:inherit" oninput="renderLiquidaciones()">
+          <button onclick="loadLiquidaciones()" style="background:none;border:1px solid var(--mist);border-radius:8px;padding:7px 12px;font-size:.82rem;cursor:pointer;color:var(--mid)">↻ Actualizar</button>
+        </div>
+        <div class="panel">
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead><tr><th>Fecha</th><th>N°</th><th>Cliente</th><th>Paq.</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead>
+              <tbody id="adm-liq-body"><tr><td colspan="7" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -2005,6 +2024,31 @@ footer a:hover{color:rgba(255,255,255,.75)}
       <button id="btn-liq-email" class="btn-save" style="background:#2e7d32" onclick="sendLiquidacion(true)">📧 Guardar y enviar por email</button>
       <button id="btn-liq-wa" class="btn-save" style="background:#25d366" onclick="enviarLiquidacionWhatsApp()">📲 Enviar por WhatsApp</button>
       <button id="btn-liq-pdf" class="btn-save" style="background:#5d4037" onclick="downloadLiquidacionPDF()">📄 Descargar PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETALLE LIQUIDACIÓN (historial) -->
+<div class="modal-overlay" id="modal-liq-detail">
+  <div class="modal-box" style="max-width:820px;width:95vw;max-height:88vh;display:flex;flex-direction:column">
+    <div class="modal-title" id="liqd-title">Liquidación</div>
+    <div id="liqd-sub" style="color:var(--gray);font-size:.85rem;margin-bottom:12px"></div>
+    <div class="admin-table-wrap" style="flex:1;overflow-y:auto">
+      <table class="admin-table">
+        <thead><tr><th>Tracking</th><th>Descripción</th><th>Depósito</th><th>Peso</th><th>Costo</th></tr></thead>
+        <tbody id="liqd-body"></tbody>
+        <tfoot><tr style="background:#f5f5f5;font-weight:800">
+          <td colspan="3">TOTAL</td>
+          <td id="liqd-peso">0</td>
+          <td id="liqd-costo">0</td>
+        </tr></tfoot>
+      </table>
+    </div>
+    <div class="modal-actions" style="margin-top:16px;flex-shrink:0">
+      <button class="btn-cancel-modal" onclick="closeModal('modal-liq-detail')">Cerrar</button>
+      <button id="liqd-pdf-btn" class="btn-save" style="background:#5d4037">📄 PDF</button>
+      <button id="liqd-email-btn" class="btn-save" style="background:#2e7d32">📧 Reenviar email</button>
+      <button id="liqd-wa-btn" class="btn-save" style="background:#25d366">📲 WhatsApp</button>
     </div>
   </div>
 </div>
@@ -3505,6 +3549,7 @@ function showAdminSection(name, el) {
   document.querySelectorAll('.admin-nav-item').forEach(i=>i.classList.remove('active'));
   document.getElementById('adm-'+name).classList.add('active');
   if (el) el.classList.add('active');
+  if (name === 'liquidaciones') loadLiquidaciones();
 }
 
 // ── Resumen ──────────────────────────────────────────────────────
@@ -4523,6 +4568,138 @@ function _generateLiquidacionPDF() {
   w.document.close();
   btn.disabled = false;
   btn.textContent = '📄 Descargar PDF';
+}
+
+// ─── Historial de liquidaciones (admin) ──────────────────────────
+let adminLiquidaciones = [];
+
+async function loadLiquidaciones() {
+  const tbody = document.getElementById('adm-liq-body');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr>';
+  try {
+    const movs = await adminFetch('/api/admin/movements');
+    adminLiquidaciones = movs
+      .filter(m => (m.ref || '').startsWith('LIQ-'))
+      .sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '') || (b.ref || '').localeCompare(a.ref || ''));
+  } catch (e) {
+    adminLiquidaciones = [];
+  }
+  renderLiquidaciones();
+}
+
+function renderLiquidaciones() {
+  const tbody = document.getElementById('adm-liq-body');
+  if (!tbody) return;
+  const q = (document.getElementById('liq-hist-search')?.value || '').toLowerCase().trim();
+  const list = adminLiquidaciones.filter(m =>
+    !q || (m.clientName || '').toLowerCase().includes(q) || (m.ref || '').toLowerCase().includes(q) || (m.fecha || '').includes(q));
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--gray);padding:20px">${adminLiquidaciones.length ? 'Sin resultados para la búsqueda.' : 'Todavía no hay liquidaciones.'}</td></tr>`;
+    return;
+  }
+  const estadoBadge = d => d === true
+    ? '<span style="background:#e8f5e9;color:#2e7d32;border-radius:10px;padding:2px 9px;font-size:.74rem;font-weight:700;white-space:nowrap">🟢 Entregado</span>'
+    : d === false
+      ? '<span style="background:#fff8e1;color:#b8860b;border-radius:10px;padding:2px 9px;font-size:.74rem;font-weight:700;white-space:nowrap">🟡 Pendiente</span>'
+      : '<span style="color:var(--gray);font-size:.78rem">—</span>';
+  const btn = (fn, ref, bg, label, title) =>
+    `<button onclick="${fn}('${ref}')" title="${title}" style="background:${bg};color:#fff;border:none;border-radius:6px;padding:4px 9px;font-size:.82rem;cursor:pointer;margin-right:3px">${label}</button>`;
+  tbody.innerHTML = list.map(m => {
+    const n = (m.items || []).length;
+    const total = Math.abs(Number(m.monto || 0)).toFixed(2);
+    return `<tr>
+      <td style="white-space:nowrap">${m.fecha || ''}</td>
+      <td><code style="font-size:.72rem">${m.ref}</code></td>
+      <td>${m.clientName || ''}</td>
+      <td style="text-align:center">${n}</td>
+      <td style="white-space:nowrap">USD ${total}</td>
+      <td>${estadoBadge(m.delivered)}</td>
+      <td style="white-space:nowrap">
+        ${btn('verLiquidacion', m.ref, 'var(--ink)', '👁', 'Ver detalle')}
+        ${btn('reimprimirLiquidacion', m.ref, '#5d4037', '📄', 'Reimprimir PDF')}
+        ${btn('reenviarLiquidacionEmail', m.ref, '#2e7d32', '📧', 'Reenviar por email')}
+        ${btn('reenviarLiquidacionWA', m.ref, '#25d366', '📲', 'Reenviar por WhatsApp')}
+      </td></tr>`;
+  }).join('');
+}
+
+function liqByRef(ref) { return adminLiquidaciones.find(m => m.ref === ref); }
+
+function verLiquidacion(ref) {
+  const m = liqByRef(ref); if (!m) return;
+  const items = m.items || [];
+  document.getElementById('liqd-title').textContent = 'Liquidación ' + m.ref;
+  document.getElementById('liqd-sub').textContent = `${m.clientName || ''} · ${m.fecha || ''}`;
+  document.getElementById('liqd-body').innerHTML = items.length
+    ? items.map(it => `<tr>
+        <td><code style="font-size:.72rem">${it.id}</code></td>
+        <td>${it.desc || ''}</td>
+        <td>${it.deposito ? whTag(it.deposito) : ''}</td>
+        <td style="text-align:right">${Number(it.peso || 0).toFixed(1)} kg</td>
+        <td style="text-align:right">USD ${Number(it.costo || 0).toFixed(2)}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" style="text-align:center;color:var(--gray);padding:16px">Esta liquidación no tiene detalle guardado.</td></tr>';
+  document.getElementById('liqd-peso').textContent = items.reduce((a, x) => a + Number(x.peso || 0), 0).toFixed(1) + ' kg';
+  document.getElementById('liqd-costo').textContent = 'USD ' + items.reduce((a, x) => a + Number(x.costo || 0), 0).toFixed(2);
+  document.getElementById('liqd-pdf-btn').onclick   = () => reimprimirLiquidacion(ref);
+  document.getElementById('liqd-email-btn').onclick = () => reenviarLiquidacionEmail(ref);
+  document.getElementById('liqd-wa-btn').onclick    = () => reenviarLiquidacionWA(ref);
+  openModal('modal-liq-detail');
+}
+
+function reimprimirLiquidacion(ref) { loadQRLib(() => _printLiquidacion(ref)); }
+function _printLiquidacion(ref) {
+  const m = liqByRef(ref); if (!m) return;
+  const items = m.items || [];
+  if (!items.length) { alert('Esta liquidación no tiene detalle para imprimir.'); return; }
+  const rows = items.map(it => `<tr><td>${it.id}</td><td>${it.desc || ''}</td><td>${it.deposito || ''}</td><td>${Number(it.peso || 0).toFixed(1)} kg</td><td>USD ${Number(it.costo || 0).toFixed(2)}</td></tr>`).join('');
+  const tp = items.reduce((a, x) => a + Number(x.peso || 0), 0);
+  const tc = items.reduce((a, x) => a + Number(x.costo || 0), 0);
+  let qrHtml = '';
+  if (window.qrcode && m.deliveryToken) {
+    try {
+      const qr = qrcode(0, 'M');
+      qr.addData(location.origin + '/entrega/' + m.deliveryToken);
+      qr.make();
+      const u = qr.createDataURL(5, 8);
+      qrHtml = `<div style="text-align:center;margin-top:28px"><img src="${u}" style="width:150px;height:150px"><div style="color:#888;font-size:.78rem;margin-top:6px">El repartidor escanea este QR al entregar para confirmar la entrega.</div></div>`;
+    } catch (e) {}
+  }
+  const inner = `<div style="margin-bottom:14px"><strong>${m.clientName || ''}</strong><br><span style="color:#888;font-size:.85rem">${m.ref} · ${m.fecha || ''}</span></div>
+    <table><thead><tr><th>Tracking</th><th>Descripción</th><th>Depósito</th><th>Peso</th><th>Costo</th></tr></thead><tbody>${rows}</tbody>
+    <tr class="total-row"><td colspan="3">TOTAL</td><td>${tp.toFixed(1)} kg</td><td>USD ${tc.toFixed(2)}</td></tr></table>${qrHtml}`;
+  _printDoc('Liquidación', inner);
+}
+
+async function reenviarLiquidacionEmail(ref) {
+  const m = liqByRef(ref); if (!m) return;
+  const cli = adminClients.find(c => c.id === m.clientId);
+  if (cli && !cli.email) { alert('Este cliente no tiene email cargado.\nEditá el cliente y agregá su email.'); return; }
+  if (!confirm(`¿Reenviar la liquidación ${m.ref} por email${cli?.email ? ' a ' + cli.email : ''}?`)) return;
+  try {
+    const res = await adminFetch(`/api/admin/liquidacion/${encodeURIComponent(ref)}/resend`, { method: 'POST' });
+    if (res.emailSent) alert(`✓ Liquidación ${m.ref} reenviada por email a ${res.to}.`);
+    else if (res.reason === 'sin-email') alert('El cliente no tiene email cargado.');
+    else alert('No se pudo enviar el email (verificá la config SMTP).');
+  } catch (e) {
+    let msg = 'Error al reenviar la liquidación.';
+    try { msg = JSON.parse(e.message).error || msg; } catch {}
+    alert(msg);
+  }
+}
+
+function reenviarLiquidacionWA(ref) {
+  const m = liqByRef(ref); if (!m) return;
+  const cli = adminClients.find(c => c.id === m.clientId);
+  const phone = (cli?.phone || '').replace(/\D/g, '');
+  if (!phone) { alert('Este cliente no tiene teléfono cargado.\nEditá el cliente y agregá su WhatsApp.'); return; }
+  const items = m.items || [];
+  if (!items.length) { alert('Esta liquidación no tiene detalle para enviar.'); return; }
+  const total = items.reduce((a, p) => a + Number(p.costo || 0), 0);
+  const lineas = items.map(p => `• ${p.desc || p.id} — USD ${Number(p.costo || 0).toFixed(2)}`).join('\n');
+  const nombre = (cli?.name || '').split(' ')[0] || '';
+  const msg = `Hola ${nombre}! Te paso la liquidación de tus paquetes en Arbox:\n\n${lineas}\n\nTotal: USD ${total.toFixed(2)}\n\nPodés ver el detalle en tu panel: https://arboxargentina.com`;
+  window.open('https://wa.me/' + phone + '?text=' + encodeURIComponent(msg), '_blank');
 }
 
 // ─── Centro de documentos (cliente) ──────────────────────────────
