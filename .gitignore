@@ -1,23 +1,56 @@
-# Dependencias
-node_modules/
-
-# Secretos / entorno
+# Environment variables
 .env
-.env.*
-!.env.example
+.env.local
+.env.*.local
 
-# Sistema
+# Dependencies
+node_modules
+/node_modules
+
+# Build output
+dist
+/dist
+*.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
 .DS_Store
+
+# Logs
+logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Backups / duplicados
-*.backup
-"* 2.*"
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 
-# Datos pesados / media (no versionar)
-*.mp4
-*.png
-*.jpeg
-*.jpg
-*.pdf
-*.xlsx
+# Optional npm cache directory
+.npm
+
+# Optional REPL history
+.node_repl_history
+
+# Package manager
+yarn.lock
+package-lock.json
+
+# Misc
+.cache
+.parcel-cache
+.turbo
+turbo.json
+
+# Temporary files
+*.tmp
+temp/

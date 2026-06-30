@@ -1,0 +1,56 @@
+PassengerAppRoot /home/u504531848/domains/arboxargentina.com/nodejs
+PassengerAppType node
+PassengerNodejs /opt/alt/alt-nodejs22/root/bin/node
+PassengerStartupFile server.js
+PassengerBaseURI /
+PassengerRestartDir /home/u504531848/domains/arboxargentina.com/nodejs/tmp
+SetEnv NODE_OPTIONS "--require /home/u504531848/domains/arboxargentina.com/public_html/.builds/config/preload-timestamp.js"
+SetEnv LSNODE_CONSOLE_LOG console.log
+
+# ─── www → non-www (301) ──────────────────────────────────────────────────────
+RewriteEngine On
+RewriteCond %{HTTP_HOST} ^www\.arboxargentina\.com$ [NC]
+RewriteRule ^(.*)$ https://arboxargentina.com/$1 [R=301,L]
+
+RewriteRule ^\.builds - [F,L]
+
+# ─── Cache-Control por tipo de asset ─────────────────────────────────────────
+<IfModule mod_headers.c>
+  # Imágenes, video, fuentes — 1 año
+  <FilesMatch "\.(jpg|jpeg|png|webp|gif|svg|ico|mp4|webm|woff|woff2|ttf|eot)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+
+  # JS y CSS — 1 semana
+  <FilesMatch "\.(js|css)$">
+    Header set Cache-Control "public, max-age=604800, must-revalidate"
+  </FilesMatch>
+
+  # Sitemap y robots — 1 día
+  <FilesMatch "\.(xml|txt)$">
+    Header set Cache-Control "public, max-age=86400"
+  </FilesMatch>
+
+  # HTML — siempre revalidar
+  <FilesMatch "\.html$">
+    Header set Cache-Control "no-cache, must-revalidate"
+  </FilesMatch>
+</IfModule>
+
+# ─── Expires (fallback para compatibilidad) ───────────────────────────────────
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType image/jpeg        "access plus 1 year"
+  ExpiresByType image/png         "access plus 1 year"
+  ExpiresByType image/webp        "access plus 1 year"
+  ExpiresByType image/gif         "access plus 1 year"
+  ExpiresByType image/svg+xml     "access plus 1 year"
+  ExpiresByType video/mp4         "access plus 1 year"
+  ExpiresByType font/woff2        "access plus 1 year"
+  ExpiresByType font/woff         "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 week"
+  ExpiresByType text/css          "access plus 1 week"
+  ExpiresByType text/xml          "access plus 1 day"
+  ExpiresByType text/plain        "access plus 1 day"
+  ExpiresByType text/html         "access plus 0 seconds"
+</IfModule>

@@ -78,8 +78,18 @@ app.use((req, res, next) => {
 // ─── Token de admin (válido hasta reinicio) ───────────────────────────────────
 const ADMIN_TOKEN = crypto.randomBytes(32).toString('hex');
 const SUPERADMINS = [
-  { email: 'alan@arboxargentina.com',  username: 'acherula', password: 'alma3012',   name: 'Alan — Admin' },
-  { email: 'jorge@arboxargentina.com', username: 'jorge',    password: 'Doblo2026!', name: 'Jorge — Admin' },
+  {
+    email: process.env.ADMIN_1_EMAIL,
+    username: process.env.ADMIN_1_USERNAME,
+    password: process.env.ADMIN_1_PASSWORD,
+    name: process.env.ADMIN_1_NAME
+  },
+  {
+    email: process.env.ADMIN_2_EMAIL,
+    username: process.env.ADMIN_2_USERNAME,
+    password: process.env.ADMIN_2_PASSWORD,
+    name: process.env.ADMIN_2_NAME
+  }
 ];
 
 // ─── Base de datos (archivo JSON) ────────────────────────────────────────────
