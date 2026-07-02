@@ -1721,6 +1721,7 @@ footer a:hover{color:rgba(255,255,255,.75)}
       <div class="admin-nav-item" onclick="showAdminSection('paquetes',this)">📦 Todos los paquetes</div>
       <div class="admin-nav-item" onclick="showAdminSection('escaner',this)">🔍 Escáner</div>
       <div class="admin-nav-item" onclick="showAdminSection('por-cliente',this)">📋 Por cliente</div>
+      <div class="admin-nav-item" onclick="showAdminSection('manifiesto',this)">📄 Procesar manifiesto</div>
       <div class="admin-nav-item" onclick="showAdminSection('noasignados',this)">📥 No asignados <span id="adm-noasig-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px"></span></div>
       <div class="admin-nav-sep">Clientes</div>
       <div class="admin-nav-item" onclick="showAdminSection('clientes',this)">👤 Lista de clientes</div>
@@ -1875,6 +1876,16 @@ footer a:hover{color:rgba(255,255,255,.75)}
 
       <!-- CLIENTES -->
       <!-- NO ASIGNADOS -->
+      <!-- PROCESAR MANIFIESTO -->
+      <div class="admin-section" id="adm-manifiesto">
+        <div class="admin-title">Procesar manifiesto</div>
+        <div class="admin-sub">Subí el/los PDF del manifiesto. Consolida por cliente, pasa a "En tránsito" los que ya están y crea los que faltan. Nada se aplica sin tu confirmación.</div>
+        <input type="file" id="manif-files" accept="application/pdf" multiple
+               style="display:none" onchange="manifOnFiles(this.files)">
+        <button class="form-submit" style="margin:0" onclick="document.getElementById('manif-files').click()">📤 Subir manifiesto(s) PDF</button>
+        <div id="manif-status" style="margin-top:14px;color:var(--gray);font-size:.85rem"></div>
+      </div>
+
       <div class="admin-section" id="adm-noasignados">
         <div class="admin-title">Paquetes no asignados</div>
         <div class="admin-sub">Paquetes recibidos cuyo tracking no matcheó ningún cliente. Asignalos y le llega el email de "recibido".</div>
@@ -2066,6 +2077,20 @@ footer a:hover{color:rgba(255,255,255,.75)}
       <button id="liqd-pdf-btn" class="btn-save" style="background:#5d4037">📄 PDF</button>
       <button id="liqd-email-btn" class="btn-save" style="background:#2e7d32">📧 Reenviar email</button>
       <button id="liqd-wa-btn" class="btn-save" style="background:#25d366">📲 WhatsApp</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PREVIEW MANIFIESTO -->
+<div class="modal-overlay" id="modal-manif">
+  <div class="modal-box" style="max-width:920px;width:96vw;max-height:90vh;display:flex;flex-direction:column">
+    <div class="modal-title">Vista previa del manifiesto</div>
+    <div id="manif-summary" style="font-size:.85rem;margin-bottom:10px"></div>
+    <div id="manif-preview" style="flex:1;overflow-y:auto"></div>
+    <div class="modal-actions" style="margin-top:14px;flex-shrink:0">
+      <button class="btn-cancel-modal" onclick="closeModal('modal-manif')">Cancelar</button>
+      <button class="btn-save" style="background:#5d4037" onclick="manifGenerateDocs()">📄 Solo generar PDF/Excel</button>
+      <button class="btn-save" style="background:#2e7d32" onclick="manifConfirmApply()">✅ Confirmar y aplicar</button>
     </div>
   </div>
 </div>
@@ -3567,6 +3592,154 @@ function showAdminSection(name, el) {
   document.getElementById('adm-'+name).classList.add('active');
   if (el) el.classList.add('active');
   if (name === 'liquidaciones') loadLiquidaciones();
+}
+
+// ─── Procesar manifiesto ─────────────────────────────────────────
+let manifState = null; // { recs, groups, plan }
+
+async function manifExtractItems(file) {
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const doc = await window.pdfjsLib.getDocument({ data: buf }).promise;
+  let items = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const tc = await (await doc.getPage(p)).getTextContent();
+    items = items.concat(tc.items.map(it => ({
+      str: it.str, x: it.transform[4], y: it.transform[5],
+      w: it.width, h: Math.hypot(it.transform[2], it.transform[3]) || it.height || 8,
+    })));
+  }
+  return items;
+}
+
+function manifOnFiles(files) {
+  if (!files || !files.length) return;
+  document.getElementById('manif-status').textContent = 'Leyendo PDF...';
+  loadPdfJs(async () => {
+    if (!window.pdfjsLib) { alert('No se pudo cargar el lector de PDF.'); return; }
+    try {
+      let recs = [];
+      for (const f of files) {
+        const label = f.name.replace(/\.pdf$/i, '').slice(0, 12);
+        const items = await manifExtractItems(f);
+        const lines = ManifestCore.reconstructLines(items);
+        const part = ManifestCore.parseRecords(lines, label);
+        if (!part.length) { alert('El archivo "' + f.name + '" no tiene texto legible (¿es un manuscrito/escaneado?). Cargalo a mano.'); }
+        recs = recs.concat(part);
+      }
+      if (!recs.length) { document.getElementById('manif-status').textContent = 'No se detectaron paquetes.'; return; }
+      const extra = JSON.parse(localStorage.getItem('manif_alias') || '{}');
+      const groups = ManifestCore.groupByClient(recs, extra);
+      const plan = ManifestCore.planIngest(recs, adminPackages, adminClients, extra);
+      manifState = { recs, groups, plan };
+      manifRenderPreview();
+      openModal('modal-manif');
+      document.getElementById('manif-status').textContent = recs.length + ' paquetes leídos.';
+    } catch (e) {
+      console.error(e); alert('Error al leer el manifiesto.');
+      document.getElementById('manif-status').textContent = 'Error al leer.';
+    }
+  });
+}
+
+function manifRenderPreview() {
+  const { recs, groups, plan } = manifState;
+  const totalKg = recs.reduce((a, r) => a + r.kilos, 0);
+  document.getElementById('manif-summary').innerHTML =
+    `<b>${Object.keys(groups).length}</b> clientes · <b>${recs.length}</b> paquetes · <b>${totalKg.toFixed(2)} kg</b>` +
+    ` &nbsp;|&nbsp; ✅ ${plan.transit.length} a "En tránsito" · 🆕 ${plan.createAssigned.length} crear (asignados) · ` +
+    `📥 ${plan.createUnassigned.length} crear (por asignar) · ⚠️ ${plan.ambiguous.length} ambiguos · ⏭️ ${plan.skip.length} ya avanzados`;
+  const box = (title, arr, fmt) => !arr.length ? '' :
+    `<div style="margin:10px 0"><div style="font-weight:700;font-size:.85rem;margin-bottom:4px">${title} (${arr.length})</div>` +
+    `<div style="font-size:.8rem;color:var(--mid)">${arr.map(fmt).join('<br>')}</div></div>`;
+  const clientList = Object.keys(groups).sort().map(n =>
+    `<button onclick="manifMergeName('${n.replace(/'/g, "\\'")}')" style="background:#f0f0f0;border:1px solid var(--mist);border-radius:6px;padding:2px 8px;font-size:.75rem;margin:2px;cursor:pointer">${n} ✎</button>`).join('');
+  document.getElementById('manif-preview').innerHTML =
+    `<div style="margin-bottom:8px"><div style="font-weight:700;font-size:.85rem;margin-bottom:4px">Clientes detectados (tocá para agrupar/renombrar)</div>${clientList}</div>` +
+    box('✅ Pasan a "En tránsito" (con email)', plan.transit, x => `${x.client} · ${x.tracking} → ${x.pkg.id}`) +
+    box('🆕 Se crean asignados (sin email)', plan.createAssigned, x => `${x.client} · ${x.tracking} · ${x.kilos}kg`) +
+    box('📥 Se crean "por asignar"', plan.createUnassigned, x => `${x.client} · ${x.tracking} · ${x.kilos}kg`) +
+    box('⚠️ Ambiguos (no se tocan)', plan.ambiguous, x => `${x.client} · ${x.tracking} (${x.matches.length} coincidencias)`) +
+    box('⏭️ Ya avanzados (se saltean)', plan.skip, x => `${x.client} · ${x.tracking} → ${x.pkg.estado}`) +
+    box('ℹ️ Sin rastreo (solo consolidado)', plan.noTracking, x => `${x.client} · ${x.kilos}kg`);
+}
+
+// Agrupar/renombrar un cliente detectado (persiste en localStorage y re-planifica)
+function manifMergeName(from) {
+  const to = prompt('Agrupar "' + from + '" con qué cliente? (escribí el nombre final)', from);
+  if (!to || to === from) return;
+  const extra = JSON.parse(localStorage.getItem('manif_alias') || '{}');
+  extra[from.toUpperCase()] = to;
+  localStorage.setItem('manif_alias', JSON.stringify(extra));
+  manifState.groups = ManifestCore.groupByClient(manifState.recs, extra);
+  manifState.plan = ManifestCore.planIngest(manifState.recs, adminPackages, adminClients, extra);
+  manifRenderPreview();
+}
+
+async function manifConfirmApply() {
+  if (!manifState) return;
+  const { plan } = manifState;
+  const nTransit = plan.transit.length;
+  const nCreate = plan.createAssigned.length + plan.createUnassigned.length;
+  if (!confirm(`Vas a pasar ${nTransit} paquete(s) a "En tránsito" (les llega email) y crear ${nCreate} nuevo(s). ¿Confirmás?`)) return;
+  try {
+    if (nTransit) {
+      const ids = plan.transit.map(x => x.pkg.id);
+      await adminFetch('/api/admin/packages/bulk', { method: 'PUT', body: { ids, fields: { estado: 'En tránsito' } } });
+    }
+    const toCreate = plan.createAssigned.concat(plan.createUnassigned).map(x => ({
+      id: x.tracking, clientId: x.clientId || null, peso: x.kilos,
+      deposito: 'Miami', desc: 'Paquete en tránsito (manifiesto)', estado: 'En tránsito',
+    }));
+    let created = { creados: 0, omitidos: 0 };
+    if (toCreate.length) created = await adminFetch('/api/admin/packages/ingest', { method: 'POST', body: { items: toCreate } });
+    closeModal('modal-manif');
+    await loadAdminData();
+    manifGenerateDocs();
+    alert(`Listo.\n${nTransit} pasados a "En tránsito".\nCreados: ${created.creados} (omitidos: ${created.omitidos}).`);
+  } catch (e) { console.error(e); alert('Error al aplicar los cambios.'); }
+}
+
+function manifGenerateDocs() {
+  loadSheetJs(() => manifBuildExcel());
+  manifBuildPdf();
+}
+
+function manifBuildExcel() {
+  if (!window.XLSX || !manifState) return;
+  const { groups } = manifState;
+  const names = Object.keys(groups).sort();
+  const detalle = [['Cliente', 'Manifiesto', 'Rastreo', 'Kg']];
+  const consol = [['Nº', 'Manifiesto', 'Rastreo', 'Kg']];
+  let total = 0;
+  for (const name of names) {
+    const items = groups[name].slice().sort((a, b) => (a.manifest + a.tracking).localeCompare(b.manifest + b.tracking));
+    const sub = items.reduce((a, x) => a + x.kilos, 0); total += sub;
+    consol.push([name, '', '', '']);
+    items.forEach((x, i) => { consol.push([i + 1, x.manifest, x.tracking || '—', +x.kilos.toFixed(2)]); detalle.push([name, x.manifest, x.tracking || '—', +x.kilos.toFixed(2)]); });
+    consol.push(['', '', 'Subtotal', +sub.toFixed(2)]);
+    consol.push([]);
+  }
+  consol.push(['TOTAL', '', '', +total.toFixed(2)]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(consol), 'Consolidado');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detalle), 'Detalle');
+  XLSX.writeFile(wb, 'Consolidado manifiesto.xlsx');
+}
+
+function manifBuildPdf() {
+  const { groups } = manifState;
+  const names = Object.keys(groups).sort();
+  let total = 0, inner = '';
+  for (const name of names) {
+    const items = groups[name].slice().sort((a, b) => (a.manifest + a.tracking).localeCompare(b.manifest + b.tracking));
+    const sub = items.reduce((a, x) => a + x.kilos, 0); total += sub;
+    inner += `<div style="background:#0a0a0a;color:#fff;padding:6px 10px;margin-top:14px;font-weight:800">${name} — ${items.length} paq · ${sub.toFixed(2)} kg</div>`;
+    inner += '<table><thead><tr><th>Nº</th><th>Manifiesto</th><th>Rastreo</th><th>Kg</th></tr></thead><tbody>' +
+      items.map((x, i) => `<tr><td>${i + 1}</td><td>${x.manifest}</td><td>${x.tracking || '—'}</td><td>${x.kilos.toFixed(2)}</td></tr>`).join('') +
+      `<tr class="total-row"><td colspan="3">Subtotal</td><td>${sub.toFixed(2)}</td></tr></tbody></table>`;
+  }
+  inner += `<div style="background:#0a0a0a;color:#fff;padding:10px;margin-top:16px;font-weight:800;display:flex;justify-content:space-between"><span>TOTAL GENERAL</span><span>${total.toFixed(2)} kg</span></div>`;
+  _printDoc('Consolidado de manifiestos', inner);
 }
 
 // ── Resumen ──────────────────────────────────────────────────────
