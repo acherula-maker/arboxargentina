@@ -1274,6 +1274,35 @@ app.put('/api/admin/packages/bulk', requireAdmin, async (req, res) => {
   res.json({ ok: true, updated });
 });
 
+// Alta batch de paquetes desde manifiesto (idempotente, SIN email).
+// body: { items: [{ id, clientId|null, peso, deposito, desc, estado }] }
+app.post('/api/admin/packages/ingest', requireAdmin, (req, res) => {
+  const { items } = req.body;
+  if (!Array.isArray(items)) return res.status(400).json({ error: 'items inválido' });
+  const db = loadDB();
+  const hoy = new Date().toISOString().split('T')[0];
+  let creados = 0, omitidos = 0;
+  const validStates = ['Registrado','Recibido en origen','En depósito','En tránsito','En viaje','Clasificando en BsAs','Listo para entrega','Entregado','Retenido'];
+  for (const it of items) {
+    const id = String(it.id || '').trim();
+    if (!id) { omitidos++; continue; }
+    if (db.packages.find(p => p.id === id)) { omitidos++; continue; }      // idempotente
+    const estado = validStates.includes(it.estado) ? it.estado : 'En tránsito';
+    const assigned = it.clientId && db.clients.find(c => c.id === it.clientId);
+    db.packages.push({
+      id, clientId: assigned ? it.clientId : null, unassigned: !assigned,
+      destinatario: '', deposito: it.deposito || 'Miami',
+      desc: it.desc || 'Paquete en tránsito (manifiesto)',
+      peso: parseFloat(it.peso) || 0, valor: 0, costo: 0, remitente: '', obs: '',
+      estado, fecha: hoy, pagado: false, notificado: false, documents: null,
+      historial: [{ estado, fecha: hoy, ts: Date.now() }],
+    });
+    creados++;
+  }
+  saveDB(db, 'manifiesto-ingest');
+  res.status(201).json({ ok: true, creados, omitidos });
+});
+
 // Editar paquete
 app.put('/api/admin/packages/:id', requireAdmin, async (req, res) => {
   const db  = loadDB();

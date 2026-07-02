@@ -39,19 +39,12 @@ Convención de verificación del repo (sin framework de tests): `node --check` p
 
   // --- Reconstrucción de líneas a partir de items de texto de pdf.js ---
   // items: [{ str, x, y, w, h }]  (x=transform[4], y=transform[5], w=width, h=alto de fuente)
+  // Los manifiestos están maquetados en VARIAS COLUMNAS por página. pdf.js entrega los
+  // items en orden de lectura (columna por columna). Recorremos EN ESE ORDEN y cortamos
+  // línea al cambiar la Y (>3). Ordenar por geometría mezclaría columnas distintas.
   function reconstructLines(items) {
-    const rows = {};
-    for (const it of items) {
-      if (!it.str) continue;
-      const y = Math.round(it.y);
-      let key = Object.keys(rows).find(k => Math.abs(Number(k) - y) <= 3);
-      if (key === undefined) key = String(y);
-      (rows[key] = rows[key] || []).push(it);
-    }
-    const ys = Object.keys(rows).map(Number).sort((a, b) => b - a);
-    const lines = [];
-    for (const y of ys) {
-      const its = rows[y].slice().sort((a, b) => a.x - b.x);
+    function build(group) {
+      const its = group.slice().sort((a, b) => a.x - b.x);
       let line = '', prev = null;
       for (const it of its) {
         if (prev) {
@@ -62,9 +55,20 @@ Convención de verificación del repo (sin framework de tests): `node --check` p
         line += it.str;
         prev = it;
       }
-      line = line.replace(/\s+/g, ' ').trim();
-      if (line) lines.push(line);
+      return line.replace(/\s+/g, ' ').trim();
     }
+    const lines = [];
+    let cur = [], curY = null;
+    for (const it of items) {
+      if (!it.str) continue;
+      if (curY !== null && Math.abs(it.y - curY) > 3) {
+        const l = build(cur); if (l) lines.push(l);
+        cur = [];
+      }
+      cur.push(it);
+      curY = it.y;
+    }
+    const last = build(cur); if (last) lines.push(last);
     return lines;
   }
 
@@ -185,15 +189,20 @@ Insertar dentro del IIFE, antes de `const api = ...`:
 
 ```js
   // --- Alias (negocio + artefactos de extracción del 22.6) ---
+  // Incluye alias de negocio y artefactos de extracción de pdf.js (letter-spacing del 22.6).
   const ALIAS = {
-    'VALERIA CALDERON': 'CALDERONE', 'CALDERO NE': 'CALDERONE', 'CALDERONE': 'CALDERONE',
+    'VALERIA CALDERON': 'CALDERONE', 'VALERIA CALDERO N': 'CALDERONE',
+    'CALDERO NE': 'CALDERONE', 'CALDERONE': 'CALDERONE',
     'SCONF': 'SCONFIETTI', 'SCO NF': 'SCONFIETTI', 'SCO NFIETTI': 'SCONFIETTI', 'SCONFIETTI': 'SCONFIETTI',
     'MIGUES': 'MIGUEZ', 'MIGUEZ': 'MIGUEZ',
-    'CACOPARDO': 'CALOPARDO', 'CACO PARDO': 'CALOPARDO', 'MONICA CACOPAR': 'CALOPARDO', 'CALOPARDO': 'CALOPARDO',
+    'CACOPARDO': 'CALOPARDO', 'CACO PARDO': 'CALOPARDO',
+    'MONICA CACOPAR': 'CALOPARDO', 'MO NICA CACO PAR': 'CALOPARDO', 'CALOPARDO': 'CALOPARDO',
     'ELI': 'ELIANA', 'ELIANA': 'ELIANA',
+    'ACO STA': 'ACOSTA', 'ACOSTA': 'ACOSTA', 'CO RTEZ': 'CORTEZ', 'CORTEZ': 'CORTEZ',
+    'GREGO RIC': 'GREGORIC', 'TEO DELINA': 'TEODELINA',
     'AMALGAM': 'AMALGAM/MALDONADO/MENCONI', 'MALDONADO': 'AMALGAM/MALDONADO/MENCONI',
     'DANIEL MALDONADO': 'AMALGAM/MALDONADO/MENCONI', 'DANIELMALDONAD': 'AMALGAM/MALDONADO/MENCONI',
-    'MENCONI': 'AMALGAM/MALDONADO/MENCONI',
+    'DANIEL MALDO NAD': 'AMALGAM/MALDONADO/MENCONI', 'MENCONI': 'AMALGAM/MALDONADO/MENCONI',
   };
 
   function canonicalize(name, extra) {
@@ -432,7 +441,7 @@ Expected: `403` (ruta registrada, protegida)
 Run (usa credenciales SUPERADMIN de `.env`):
 ```bash
 source .env
-TOKEN=$(curl -s -X POST http://localhost:3999/api/login -H 'Content-Type: application/json' \
+TOKEN=$(curl -s -X POST http://localhost:3999/api/auth/login -H 'Content-Type: application/json' \
   -d "{\"username\":\"$ADMIN_1_USERNAME\",\"password\":\"$ADMIN_1_PASSWORD\"}" | node -e "process.stdin.on('data',d=>console.log(JSON.parse(d).adminToken))")
 echo "token: ${TOKEN:0:8}..."
 curl -s -X POST http://localhost:3999/api/admin/packages/ingest -H "x-admin-token: $TOKEN" \
