@@ -862,6 +862,23 @@ footer a:hover{color:rgba(255,255,255,.75)}
     s.onerror = cb; // si falla, seguimos sin QR
     document.head.appendChild(s);
   }
+  function loadPdfJs(cb) {
+    if (window.pdfjsLib) { cb(); return; }
+    import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.2.67/build/pdf.min.mjs')
+      .then(m => {
+        window.pdfjsLib = m;
+        m.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.2.67/build/pdf.worker.min.mjs';
+        cb();
+      })
+      .catch(() => cb());
+  }
+  function loadSheetJs(cb) {
+    if (window.XLSX) { cb(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    s.onload = cb; s.onerror = cb;
+    document.head.appendChild(s);
+  }
   </script>
 </head>
 <body>
@@ -5013,5 +5030,6 @@ function closeMobileMenu() {
   document.body.style.overflow = '';
 }
 </script>
+<script src="manifest-core.js"></script>
 </body>
 </html>
