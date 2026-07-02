@@ -87,7 +87,92 @@
     return recs;
   }
 
-  const api = { reconstructLines, parseRecords };
+  // --- Alias (negocio + artefactos de extracción del 22.6) ---
+  // Incluye alias de negocio (mismo cliente con distinto nombre) y artefactos de
+  // extracción de pdf.js en PDFs con letter-spacing (p.ej. "CALDERO NE" → CALDERONE).
+  const ALIAS = {
+    'VALERIA CALDERON': 'CALDERONE', 'VALERIA CALDERO N': 'CALDERONE',
+    'CALDERO NE': 'CALDERONE', 'CALDERONE': 'CALDERONE',
+    'SCONF': 'SCONFIETTI', 'SCO NF': 'SCONFIETTI', 'SCO NFIETTI': 'SCONFIETTI', 'SCONFIETTI': 'SCONFIETTI',
+    'MIGUES': 'MIGUEZ', 'MIGUEZ': 'MIGUEZ',
+    'CACOPARDO': 'CALOPARDO', 'CACO PARDO': 'CALOPARDO',
+    'MONICA CACOPAR': 'CALOPARDO', 'MO NICA CACO PAR': 'CALOPARDO', 'CALOPARDO': 'CALOPARDO',
+    'ELI': 'ELIANA', 'ELIANA': 'ELIANA',
+    'ACO STA': 'ACOSTA', 'ACOSTA': 'ACOSTA',
+    'CO RTEZ': 'CORTEZ', 'CORTEZ': 'CORTEZ',
+    'GREGO RIC': 'GREGORIC', 'TEO DELINA': 'TEODELINA',
+    'AMALGAM': 'AMALGAM/MALDONADO/MENCONI', 'MALDONADO': 'AMALGAM/MALDONADO/MENCONI',
+    'DANIEL MALDONADO': 'AMALGAM/MALDONADO/MENCONI', 'DANIELMALDONAD': 'AMALGAM/MALDONADO/MENCONI',
+    'DANIEL MALDO NAD': 'AMALGAM/MALDONADO/MENCONI', 'MENCONI': 'AMALGAM/MALDONADO/MENCONI',
+  };
+
+  function canonicalize(name, extra) {
+    const map = Object.assign({}, ALIAS, extra || {});
+    const key = (name || '').trim().toUpperCase();
+    return map[key] || (name || '').trim();
+  }
+
+  function groupByClient(recs, extraAlias) {
+    const groups = {};
+    for (const r of recs) {
+      const c = canonicalize(r.client_raw, extraAlias);
+      (groups[c] = groups[c] || []).push(Object.assign({ client: c }, r));
+    }
+    return groups;
+  }
+
+  // --- Matcheo contra la base + plan de ingesta ---
+  const norm = s => String(s == null ? '' : s).toUpperCase().replace(/\s/g, '');
+  const ADVANCED = new Set(['En tránsito', 'En viaje', 'Clasificando en BsAs', 'Listo para entrega', 'Entregado', 'Retenido']);
+
+  // packages: [{ id, clientId, estado }]. Devuelve {status:'exact'|'suffix'|'ambiguous'|'none', matches:[pkg]}
+  function matchBySuffix(tracking, packages) {
+    const T = norm(tracking);
+    if (!T) return { status: 'none', matches: [] };
+    const exact = packages.filter(p => norm(p.id) === T);
+    if (exact.length === 1) return { status: 'exact', matches: exact };
+    const suf = packages.filter(p => norm(p.id).endsWith(T));
+    if (suf.length === 1) return { status: 'suffix', matches: suf };
+    if (suf.length > 1) return { status: 'ambiguous', matches: suf };
+    return { status: 'none', matches: [] };
+  }
+
+  // Busca cliente por apellido canónico como token completo del nombre. clients:[{id,name}]
+  function findClientsByName(canonName, clients) {
+    const parts = canonName.split('/');   // p.ej. AMALGAM/MALDONADO/MENCONI
+    const hit = [];
+    for (const c of clients) {
+      const toks = String(c.name || '').toUpperCase().split(/\s+/);
+      if (parts.some(p => toks.includes(p.toUpperCase()))) hit.push(c);
+    }
+    return hit;
+  }
+
+  // recs: registros parseados. packages/clients de la base. Categoriza para la preview.
+  function planIngest(recs, packages, clients, extraAlias) {
+    const plan = { transit: [], skip: [], ambiguous: [], createAssigned: [], createUnassigned: [], noTracking: [] };
+    for (const r of recs) {
+      const canon = canonicalize(r.client_raw, extraAlias);
+      if (!r.tracking || /PCS/i.test(r.tracking)) { plan.noTracking.push(Object.assign({ client: canon }, r)); continue; }
+      const m = matchBySuffix(r.tracking, packages);
+      if (m.status === 'ambiguous') { plan.ambiguous.push(Object.assign({ client: canon, matches: m.matches }, r)); continue; }
+      if (m.status === 'exact' || m.status === 'suffix') {
+        const pkg = m.matches[0];
+        if (ADVANCED.has(pkg.estado)) plan.skip.push(Object.assign({ client: canon, pkg }, r));
+        else plan.transit.push(Object.assign({ client: canon, pkg }, r));
+        continue;
+      }
+      const cli = findClientsByName(canon, clients);
+      if (cli.length === 1) plan.createAssigned.push(Object.assign({ client: canon, clientId: cli[0].id }, r));
+      else plan.createUnassigned.push(Object.assign({ client: canon, clientId: null }, r));
+    }
+    return plan;
+  }
+
+  const api = {
+    reconstructLines, parseRecords, ALIAS, canonicalize, groupByClient,
+    matchBySuffix, findClientsByName, planIngest,
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ManifestCore = api;
 })(typeof window !== 'undefined' ? window : globalThis);
