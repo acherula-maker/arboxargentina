@@ -4,17 +4,21 @@
 
   // --- Reconstrucción de líneas a partir de items de texto de pdf.js ---
   // items: [{ str, x, y, w, h }]  (x=transform[4], y=transform[5], w=width, h=alto de fuente)
+  const Y_TOLERANCE = 3;            // salto de Y (pt) que separa dos líneas
+  const SPACE_WIDTH_FACTOR = 0.25;  // hueco mínimo (× alto de fuente) para insertar espacio
+  const DEFAULT_FONT_HEIGHT = 8;    // alto de fuente por defecto si el item no lo trae
+
   function reconstructLines(items) {
     // Los manifiestos están maquetados en varias columnas por página. pdf.js entrega
     // los items en orden de lectura (columna por columna). Recorremos EN ESE ORDEN y
-    // cortamos línea al cambiar la Y (>3). Así no se mezclan columnas distintas.
-    function build(group) {
+    // cortamos línea al cambiar la Y. Así no se mezclan columnas distintas.
+    function joinLine(group) {
       const its = group.slice().sort((a, b) => a.x - b.x);
       let line = '', prev = null;
       for (const it of its) {
         if (prev) {
           const gap = it.x - (prev.x + (prev.w || 0));
-          const spaceW = 0.25 * (it.h || 8);
+          const spaceW = SPACE_WIDTH_FACTOR * (it.h || DEFAULT_FONT_HEIGHT);
           line += gap > spaceW ? ' ' : '';
         }
         line += it.str;
@@ -23,26 +27,31 @@
       return line.replace(/\s+/g, ' ').trim();
     }
     const lines = [];
-    let cur = [], curY = null;
+    let cur = [], curY = null;   // curY = Y de referencia (primer item de la línea actual)
     for (const it of items) {
       if (!it.str) continue;
-      if (curY !== null && Math.abs(it.y - curY) > 3) {
-        const l = build(cur); if (l) lines.push(l);
-        cur = [];
+      if (curY !== null && Math.abs(it.y - curY) > Y_TOLERANCE) {
+        const l = joinLine(cur); if (l) lines.push(l);
+        cur = []; curY = null;
       }
+      if (curY === null) curY = it.y;
       cur.push(it);
-      curY = it.y;
     }
-    const last = build(cur); if (last) lines.push(last);
+    const last = joinLine(cur); if (last) lines.push(last);
     return lines;
   }
 
   // --- Parseo de registros a partir de líneas de texto ---
+  // NOISE: tokens de encabezados/subtotales que NO son filas de datos ("CAJ" filtra las
+  // filas "CAJA 4313 TOTAL:...KGS"). Match sensible a mayúsculas: los encabezados vienen
+  // en mixed-case ("Cliente", "Nº de rastreo") y los datos en MAYÚSCULAS, así que "de"
+  // no colisiona con nombres de cliente. CLIENT_NOISE: tokens que no son cliente (PCS, GB).
   const NOISE = ['CAJ', 'KGS', 'ALAN', 'TOTAL', 'Cliente', 'rastreo', 'Kilos', 'de', 'Nº'];
   const CLIENT_NOISE = new Set(['PCS', 'PC', 'GB']);
+  const UP = 'A-ZÁÉÍÓÚÜÑ';  // mayúsculas incluyendo acentos del español
   const isInt = t => /^\d+$/.test(t);
   const isKilos = t => /^\d+\.\d+$/.test(t);
-  const isAlpha = t => /^[A-ZÑ]+$/.test(t) && !CLIENT_NOISE.has(t);
+  const isAlpha = t => new RegExp('^[' + UP + ']+$').test(t) && !CLIENT_NOISE.has(t);
   const isHeader = line => NOISE.some(k => line.includes(k));
 
   function parseRecords(lines, manifest) {
@@ -68,7 +77,7 @@
         continue;
       }
       if (!header) {
-        const m = line.match(/^(?:\d+\s+)?([A-ZÑ][A-ZÑ ]*[A-ZÑ]|[A-ZÑ]+)$/);
+        const m = line.match(new RegExp('^(?:\\d+\\s+)?([' + UP + '][' + UP + ' ]*[' + UP + ']|[' + UP + ']+)$'));
         if (m) {
           const words = m[1].split(/\s+/).filter(w => !CLIENT_NOISE.has(w));
           if (words.length) lastClient = words.join(' ');
