@@ -441,7 +441,7 @@ Expected: `403` (ruta registrada, protegida)
 Run (usa credenciales SUPERADMIN de `.env`):
 ```bash
 source .env
-TOKEN=$(curl -s -X POST http://localhost:3999/api/login -H 'Content-Type: application/json' \
+TOKEN=$(curl -s -X POST http://localhost:3999/api/auth/login -H 'Content-Type: application/json' \
   -d "{\"username\":\"$ADMIN_1_USERNAME\",\"password\":\"$ADMIN_1_PASSWORD\"}" | node -e "process.stdin.on('data',d=>console.log(JSON.parse(d).adminToken))")
 echo "token: ${TOKEN:0:8}..."
 curl -s -X POST http://localhost:3999/api/admin/packages/ingest -H "x-admin-token: $TOKEN" \
