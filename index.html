@@ -3596,6 +3596,9 @@ function showAdminSection(name, el) {
 
 // ─── Procesar manifiesto ─────────────────────────────────────────
 let manifState = null; // { recs, groups, plan }
+let manifNames = [];   // nombres de cliente detectados (para referencias por índice en la UI)
+const manifEsc = s => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 async function manifExtractItems(file) {
   const buf = new Uint8Array(await file.arrayBuffer());
@@ -3651,16 +3654,17 @@ function manifRenderPreview() {
   const box = (title, arr, fmt) => !arr.length ? '' :
     `<div style="margin:10px 0"><div style="font-weight:700;font-size:.85rem;margin-bottom:4px">${title} (${arr.length})</div>` +
     `<div style="font-size:.8rem;color:var(--mid)">${arr.map(fmt).join('<br>')}</div></div>`;
-  const clientList = Object.keys(groups).sort().map(n =>
-    `<button onclick="manifMergeName('${n.replace(/'/g, "\\'")}')" style="background:#f0f0f0;border:1px solid var(--mist);border-radius:6px;padding:2px 8px;font-size:.75rem;margin:2px;cursor:pointer">${n} ✎</button>`).join('');
+  manifNames = Object.keys(groups).sort();
+  const clientList = manifNames.map((n, i) =>
+    `<button onclick="manifMergeName(manifNames[${i}])" style="background:#f0f0f0;border:1px solid var(--mist);border-radius:6px;padding:2px 8px;font-size:.75rem;margin:2px;cursor:pointer">${manifEsc(n)} ✎</button>`).join('');
   document.getElementById('manif-preview').innerHTML =
     `<div style="margin-bottom:8px"><div style="font-weight:700;font-size:.85rem;margin-bottom:4px">Clientes detectados (tocá para agrupar/renombrar)</div>${clientList}</div>` +
-    box('✅ Pasan a "En tránsito" (con email)', plan.transit, x => `${x.client} · ${x.tracking} → ${x.pkg.id}`) +
-    box('🆕 Se crean asignados (sin email)', plan.createAssigned, x => `${x.client} · ${x.tracking} · ${x.kilos}kg`) +
-    box('📥 Se crean "por asignar"', plan.createUnassigned, x => `${x.client} · ${x.tracking} · ${x.kilos}kg`) +
-    box('⚠️ Ambiguos (no se tocan)', plan.ambiguous, x => `${x.client} · ${x.tracking} (${x.matches.length} coincidencias)`) +
-    box('⏭️ Ya avanzados (se saltean)', plan.skip, x => `${x.client} · ${x.tracking} → ${x.pkg.estado}`) +
-    box('ℹ️ Sin rastreo (solo consolidado)', plan.noTracking, x => `${x.client} · ${x.kilos}kg`);
+    box('✅ Pasan a "En tránsito" (con email)', plan.transit, x => `${manifEsc(x.client)} · ${manifEsc(x.tracking)} → ${manifEsc(x.pkg.id)}`) +
+    box('🆕 Se crean asignados (sin email)', plan.createAssigned, x => `${manifEsc(x.client)} · ${manifEsc(x.tracking)} · ${x.kilos}kg`) +
+    box('📥 Se crean "por asignar"', plan.createUnassigned, x => `${manifEsc(x.client)} · ${manifEsc(x.tracking)} · ${x.kilos}kg`) +
+    box('⚠️ Ambiguos (no se tocan)', plan.ambiguous, x => `${manifEsc(x.client)} · ${manifEsc(x.tracking)} (${x.matches.length} coincidencias)`) +
+    box('⏭️ Ya avanzados (se saltean)', plan.skip, x => `${manifEsc(x.client)} · ${manifEsc(x.tracking)} → ${manifEsc(x.pkg.estado)}`) +
+    box('ℹ️ Sin rastreo (solo consolidado)', plan.noTracking, x => `${manifEsc(x.client)} · ${x.kilos}kg`);
 }
 
 // Agrupar/renombrar un cliente detectado (persiste en localStorage y re-planifica)
@@ -3680,7 +3684,14 @@ async function manifConfirmApply() {
   const { plan } = manifState;
   const nTransit = plan.transit.length;
   const nCreate = plan.createAssigned.length + plan.createUnassigned.length;
+  if (nTransit + nCreate === 0) {
+    alert('No hay cambios para aplicar (todo quedó ambiguo, ya avanzado o sin rastreo). Usá "Solo generar PDF/Excel" si querés los documentos.');
+    return;
+  }
   if (!confirm(`Vas a pasar ${nTransit} paquete(s) a "En tránsito" (les llega email) y crear ${nCreate} nuevo(s). ¿Confirmás?`)) return;
+  // Generar los documentos AHORA (dentro del gesto del usuario) para que el navegador
+  // no bloquee la ventana de impresión; no dependen del resultado de las mutaciones.
+  manifGenerateDocs();
   try {
     if (nTransit) {
       const ids = plan.transit.map(x => x.pkg.id);
@@ -3693,10 +3704,13 @@ async function manifConfirmApply() {
     let created = { creados: 0, omitidos: 0 };
     if (toCreate.length) created = await adminFetch('/api/admin/packages/ingest', { method: 'POST', body: { items: toCreate } });
     closeModal('modal-manif');
-    await loadAdminData();
-    manifGenerateDocs();
     alert(`Listo.\n${nTransit} pasados a "En tránsito".\nCreados: ${created.creados} (omitidos: ${created.omitidos}).`);
-  } catch (e) { console.error(e); alert('Error al aplicar los cambios.'); }
+  } catch (e) {
+    console.error(e);
+    alert('Se generaron los documentos, pero hubo un error al aplicar los cambios en la base. Revisá y reintentá.');
+  } finally {
+    await loadAdminData();
+  }
 }
 
 function manifGenerateDocs() {
@@ -3704,16 +3718,25 @@ function manifGenerateDocs() {
   manifBuildPdf();
 }
 
+// Consolida los grupos en filas ordenadas por cliente + total (usado por Excel y PDF).
+function manifConsolidate() {
+  const { groups } = manifState;
+  let total = 0;
+  const rows = Object.keys(groups).sort().map(name => {
+    const items = groups[name].slice().sort((a, b) => (a.manifest + a.tracking).localeCompare(b.manifest + b.tracking));
+    const sub = items.reduce((a, x) => a + x.kilos, 0);
+    total += sub;
+    return { name, items, sub };
+  });
+  return { rows, total };
+}
+
 function manifBuildExcel() {
   if (!window.XLSX || !manifState) return;
-  const { groups } = manifState;
-  const names = Object.keys(groups).sort();
+  const { rows, total } = manifConsolidate();
   const detalle = [['Cliente', 'Manifiesto', 'Rastreo', 'Kg']];
   const consol = [['Nº', 'Manifiesto', 'Rastreo', 'Kg']];
-  let total = 0;
-  for (const name of names) {
-    const items = groups[name].slice().sort((a, b) => (a.manifest + a.tracking).localeCompare(b.manifest + b.tracking));
-    const sub = items.reduce((a, x) => a + x.kilos, 0); total += sub;
+  for (const { name, items, sub } of rows) {
     consol.push([name, '', '', '']);
     items.forEach((x, i) => { consol.push([i + 1, x.manifest, x.tracking || '—', +x.kilos.toFixed(2)]); detalle.push([name, x.manifest, x.tracking || '—', +x.kilos.toFixed(2)]); });
     consol.push(['', '', 'Subtotal', +sub.toFixed(2)]);
@@ -3727,15 +3750,13 @@ function manifBuildExcel() {
 }
 
 function manifBuildPdf() {
-  const { groups } = manifState;
-  const names = Object.keys(groups).sort();
-  let total = 0, inner = '';
-  for (const name of names) {
-    const items = groups[name].slice().sort((a, b) => (a.manifest + a.tracking).localeCompare(b.manifest + b.tracking));
-    const sub = items.reduce((a, x) => a + x.kilos, 0); total += sub;
-    inner += `<div style="background:#0a0a0a;color:#fff;padding:6px 10px;margin-top:14px;font-weight:800">${name} — ${items.length} paq · ${sub.toFixed(2)} kg</div>`;
+  if (!manifState) return;
+  const { rows, total } = manifConsolidate();
+  let inner = '';
+  for (const { name, items, sub } of rows) {
+    inner += `<div style="background:#0a0a0a;color:#fff;padding:6px 10px;margin-top:14px;font-weight:800">${manifEsc(name)} — ${items.length} paq · ${sub.toFixed(2)} kg</div>`;
     inner += '<table><thead><tr><th>Nº</th><th>Manifiesto</th><th>Rastreo</th><th>Kg</th></tr></thead><tbody>' +
-      items.map((x, i) => `<tr><td>${i + 1}</td><td>${x.manifest}</td><td>${x.tracking || '—'}</td><td>${x.kilos.toFixed(2)}</td></tr>`).join('') +
+      items.map((x, i) => `<tr><td>${i + 1}</td><td>${manifEsc(x.manifest)}</td><td>${manifEsc(x.tracking || '—')}</td><td>${x.kilos.toFixed(2)}</td></tr>`).join('') +
       `<tr class="total-row"><td colspan="3">Subtotal</td><td>${sub.toFixed(2)}</td></tr></tbody></table>`;
   }
   inner += `<div style="background:#0a0a0a;color:#fff;padding:10px;margin-top:16px;font-weight:800;display:flex;justify-content:space-between"><span>TOTAL GENERAL</span><span>${total.toFixed(2)} kg</span></div>`;
