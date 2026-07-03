@@ -3513,11 +3513,11 @@ async function showInviteView(token) {
     return;
   }
   const rows = (data.packages || []).map(p => `<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--smoke)">
-      <div style="font-size:.85rem"><code style="font-size:.72rem;color:var(--gray)">${p.id}</code><br>${p.desc || ''}</div>
-      <div style="font-size:.78rem;color:var(--mid);white-space:nowrap">${p.estado || ''}</div></div>`).join('');
+      <div style="font-size:.85rem"><code style="font-size:.72rem;color:var(--gray)">${manifEsc(p.id)}</code><br>${manifEsc(p.desc || '')}</div>
+      <div style="font-size:.78rem;color:var(--mid);white-space:nowrap">${manifEsc(p.estado || '')}</div></div>`).join('');
   view.innerHTML = `<div style="max-width:480px;margin:0 auto;background:#fff;border-radius:14px;padding:28px;border:1px solid var(--mist)">
       <div style="font-weight:900;font-size:1.2rem;letter-spacing:-.02em">Arbox Argentina</div>
-      <div style="font-size:1.15rem;font-weight:800;margin-top:14px">Hola ${data.name} 👋</div>
+      <div style="font-size:1.15rem;font-weight:800;margin-top:14px">Hola ${manifEsc(data.name)} 👋</div>
       <div style="color:var(--mid);font-size:.9rem;margin-top:4px">Ya tenemos tus paquetes cargados. Creá tu cuenta para seguirlos y coordinar la entrega.</div>
       <div style="margin:18px 0;padding:14px;background:var(--smoke);border-radius:10px">
         <div style="font-weight:700;font-size:.8rem;text-transform:uppercase;color:var(--gray);letter-spacing:.5px;margin-bottom:6px">Tus paquetes (${(data.packages || []).length})</div>
@@ -4315,7 +4315,7 @@ function renderUnassigned() {
   tbody.innerHTML = unassignedList.map((p, i) => `
     <tr>
       <td><code style="font-size:.75rem">${p.id}</code></td>
-      <td>${p.destinatario || '<span style="color:var(--gray)">—</span>'}</td>
+      <td>${p.destinatario ? manifEsc(p.destinatario) : '<span style="color:var(--gray)">—</span>'}</td>
       <td>${whTag(p.deposito)}</td>
       <td style="color:var(--gray);font-size:.82rem">${p.fecha}</td>
       <td style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">

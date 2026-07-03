@@ -849,8 +849,11 @@ app.post('/api/auth/register', (req, res) => {
 // Datos de una invitación (público): nombre + paquetes, para la página de invitación.
 app.get('/api/invitacion/:token', (req, res) => {
   const db = loadDB();
-  const invite = (db.invites || {})[req.params.token];
-  if (!invite) return res.json({ valid: false });
+  const invites = db.invites || {};
+  const token = req.params.token;
+  if (!Object.prototype.hasOwnProperty.call(invites, token)) return res.json({ valid: false });
+  const invite = invites[token];
+  if (invite.usedAt) return res.json({ valid: false });
   const packages = invite.packageIds
     .map(id => { const p = db.packages.find(x => x.id === id); return p ? { id: p.id, desc: p.desc, estado: p.estado } : null; })
     .filter(Boolean);
@@ -863,8 +866,10 @@ app.post('/api/auth/register-invite', (req, res) => {
   if (!token || !email || !password) return res.status(400).json({ error: 'Faltan datos (email y contraseña)' });
   if (String(password).length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
   const db = loadDB();
-  const invite = (db.invites || {})[token];
-  if (!invite) return res.status(404).json({ error: 'Invitación inválida' });
+  const invites = db.invites || {};
+  if (!Object.prototype.hasOwnProperty.call(invites, token)) return res.status(404).json({ error: 'Invitación inválida' });
+  const invite = invites[token];
+  if (invite.usedAt) return res.status(400).json({ error: 'Esta invitación ya fue utilizada. Iniciá sesión con tu cuenta.' });
   if (db.clients.find(c => c.email?.toLowerCase() === email.toLowerCase())) {
     return res.status(400).json({ error: 'Ese email ya está registrado. Iniciá sesión con tu cuenta.' });
   }
