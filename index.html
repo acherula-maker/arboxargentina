@@ -1880,6 +1880,10 @@ footer a:hover{color:rgba(255,255,255,.75)}
       <div class="admin-section" id="adm-manifiesto">
         <div class="admin-title">Procesar manifiesto</div>
         <div class="admin-sub">Subí el/los PDF del manifiesto. Consolida por cliente, pasa a "En tránsito" los que ya están y crea los que faltan. Nada se aplica sin tu confirmación.</div>
+        <label style="display:block;margin-bottom:12px;font-size:.85rem;color:var(--mid)">🛬 Arribo estimado a BsAs (opcional):
+          <input type="date" id="manif-arribo" style="margin-left:8px;padding:6px 10px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;font-family:inherit">
+          <span style="color:var(--gray);font-size:.78rem;margin-left:6px">la entrega estimada se calcula sola (+2 días)</span>
+        </label>
         <input type="file" id="manif-files" accept="application/pdf" multiple
                style="display:none" onchange="manifOnFiles(this.files)">
         <button class="form-submit" style="margin:0" onclick="document.getElementById('manif-files').click()">📤 Subir manifiesto(s) PDF</button>
@@ -2988,7 +2992,8 @@ function renderPackages() {
       <td>
         <code style="font-size:.8rem;color:var(--mid)">${p.id}</code>
         ${progressBar(p.estado)}
-        ${p.estado==='En tránsito' && p.fechaEstimadaEntrega ? `<div class="pkg-eta">Entrega estimada: <strong>${p.fechaEstimadaEntrega}</strong></div>` : ''}
+        ${p.estado==='En tránsito' && p.fechaArriboBsAs ? `<div class="pkg-eta">🛬 Arribo estimado a BsAs: <strong>${p.fechaArriboBsAs}</strong></div>` : ''}
+        ${p.estado==='En tránsito' && p.fechaEstimadaEntrega ? `<div class="pkg-eta">📦 Entrega estimada: <strong>${p.fechaEstimadaEntrega}</strong></div>` : ''}
       </td>
       <td>${p.desc}</td>
       <td>${whTag(p.deposito)}</td>
@@ -3094,6 +3099,7 @@ function detailProgress(p) {
 function renderPackageDetail(p) {
   const info = ESTADO_INFO[p.estado] || { desc:'', next:'' };
   const eta = (p.estado==='En tránsito' && p.fechaEstimadaEntrega) ? p.fechaEstimadaEntrega : '';
+  const arriboBs = (p.estado==='En tránsito' && p.fechaArriboBsAs) ? p.fechaArriboBsAs : '';
   const pagoTxt = p.pagado ? '<span class="badge badge-green">Pagado</span>'
     : (p.costo>0 ? '<span class="badge badge-red">Pendiente</span>' : '<span style="color:var(--gray)">—</span>');
   const docs = (p.documents||[]).length
@@ -3108,7 +3114,8 @@ function renderPackageDetail(p) {
     <div class="panel" style="margin-bottom:16px">
       <div style="font-size:.95rem;color:var(--ink);font-weight:600;margin-bottom:6px">${info.desc}</div>
       ${info.next?`<div style="font-size:.85rem;color:var(--gray)">👉 ${info.next}</div>`:''}
-      ${eta?`<div style="margin-top:10px;font-size:.9rem;color:var(--ink)">📅 Entrega estimada: <strong>${eta}</strong></div>`:''}
+      ${arriboBs?`<div style="margin-top:10px;font-size:.9rem;color:var(--ink)">🛬 Arribo estimado a BsAs: <strong>${arriboBs}</strong> <span style="color:var(--gray);font-size:.82rem">(puede variar)</span></div>`:''}
+      ${eta?`<div style="margin-top:6px;font-size:.9rem;color:var(--ink)">📦 Entrega estimada: <strong>${eta}</strong></div>`:''}
     </div>
     <div class="account-section">
       <div class="panel">
@@ -3599,6 +3606,13 @@ let manifState = null; // { recs, groups, plan }
 let manifNames = [];   // nombres de cliente detectados (para referencias por índice en la UI)
 const manifEsc = s => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// Suma N días a una fecha 'YYYY-MM-DD' sin corrimiento por timezone (aritmética UTC).
+function manifAddDays(iso, n) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return dt.toISOString().split('T')[0];
+}
 
 async function manifExtractItems(file) {
   const buf = new Uint8Array(await file.arrayBuffer());
@@ -3689,21 +3703,26 @@ async function manifConfirmApply() {
     return;
   }
   if (!confirm(`Vas a pasar ${nTransit} paquete(s) a "En tránsito" (les llega email) y crear ${nCreate} nuevo(s). ¿Confirmás?`)) return;
+  // Fechas estimadas (opcionales): arribo lo carga el admin; entrega = arribo + 2 días.
+  const arribo = (document.getElementById('manif-arribo')?.value) || '';
+  const fechas = arribo ? { fechaArriboBsAs: arribo, fechaEstimadaEntrega: manifAddDays(arribo, 2) } : {};
   // Generar los documentos AHORA (dentro del gesto del usuario) para que el navegador
   // no bloquee la ventana de impresión; no dependen del resultado de las mutaciones.
   manifGenerateDocs();
   try {
     if (nTransit) {
       const ids = plan.transit.map(x => x.pkg.id);
-      await adminFetch('/api/admin/packages/bulk', { method: 'PUT', body: { ids, fields: { estado: 'En tránsito' } } });
+      await adminFetch('/api/admin/packages/bulk', { method: 'PUT', body: { ids, fields: { estado: 'En tránsito', ...fechas } } });
     }
     const toCreate = plan.createAssigned.concat(plan.createUnassigned).map(x => ({
       id: x.tracking, clientId: x.clientId || null, peso: x.kilos,
-      deposito: 'Miami', desc: 'Paquete en tránsito (manifiesto)', estado: 'En tránsito',
+      deposito: 'Miami', desc: 'Paquete en tránsito (manifiesto)', estado: 'En tránsito', ...fechas,
     }));
     let created = { creados: 0, omitidos: 0 };
     if (toCreate.length) created = await adminFetch('/api/admin/packages/ingest', { method: 'POST', body: { items: toCreate } });
     closeModal('modal-manif');
+    const arriboEl = document.getElementById('manif-arribo');
+    if (arriboEl) arriboEl.value = '';   // limpiar para no arrastrar la fecha al próximo manifiesto
     alert(`Listo.\n${nTransit} pasados a "En tránsito".\nCreados: ${created.creados} (omitidos: ${created.omitidos}).`);
   } catch (e) {
     console.error(e);
@@ -3821,7 +3840,8 @@ function renderAdminPackages() {
     <tr style="${selectedPkgs.has(p.id)?'background:#f0f4ff':''}">
       <td colspan="9" style="padding:4px 12px 10px 12px;border-top:none">
         ${progressBar(p.estado)}
-        ${p.estado==='En tránsito' && p.fechaEstimadaEntrega ? `<div style="font-size:.75rem;color:var(--mid);margin-top:4px">Entrega estimada: <strong>${p.fechaEstimadaEntrega}</strong></div>` : ''}
+        ${p.estado==='En tránsito' && p.fechaArriboBsAs ? `<div style="font-size:.75rem;color:var(--mid);margin-top:4px">🛬 Arribo estimado a BsAs: <strong>${p.fechaArriboBsAs}</strong></div>` : ''}
+        ${p.estado==='En tránsito' && p.fechaEstimadaEntrega ? `<div style="font-size:.75rem;color:var(--mid);margin-top:4px">📦 Entrega estimada: <strong>${p.fechaEstimadaEntrega}</strong></div>` : ''}
       </td>
     </tr>`).join('') : `<tr><td colspan="9" style="text-align:center;color:var(--gray);padding:20px">Sin paquetes.</td></tr>`;
 

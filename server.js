@@ -250,6 +250,13 @@ async function sendStatusChangeEmail(client, pkg, oldStatus, newStatus) {
         <div style="font-size:1.3rem;font-weight:800;color:#0a0a0a;letter-spacing:-.03em">${newStatus}</div>
         <div style="color:#666;font-size:.85rem;margin-top:12px">${statusMessages[newStatus] || 'Tu paquete ha cambiado de estado.'}</div>
       </div>
+      ${(newStatus === 'En tránsito' && pkg.fechaArriboBsAs) ? `
+      <div style="background:#eef5ff;border-radius:10px;padding:16px 20px;margin-bottom:24px">
+        <div style="font-size:.75rem;font-weight:700;color:#1565c0;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Fechas estimadas</div>
+        <div style="color:#0a0a0a;font-size:.9rem">🛬 Arribo a Buenos Aires: <strong>${pkg.fechaArriboBsAs}</strong></div>
+        ${pkg.fechaEstimadaEntrega ? `<div style="color:#0a0a0a;font-size:.9rem;margin-top:4px">📦 Entrega estimada: <strong>${pkg.fechaEstimadaEntrega}</strong></div>` : ''}
+        <div style="color:#888;font-size:.78rem;margin-top:8px">Son fechas estimadas y pueden variar.</div>
+      </div>` : ''}
       <table style="width:100%;border-collapse:collapse;font-size:.88rem;margin-bottom:24px">
         <tr style="border-bottom:1px solid #eee">
           <td style="padding:10px 0;color:#888">Tracking</td>
@@ -1252,7 +1259,7 @@ app.put('/api/admin/packages/bulk', requireAdmin, async (req, res) => {
   const { ids, fields } = req.body;
   if (!Array.isArray(ids) || !ids.length || !fields) return res.status(400).json({ error: 'Datos inválidos' });
   const db = loadDB();
-  const allowed = ['estado','desc','peso','costo','deposito','obs','remitente','pagado','valor','fecha'];
+  const allowed = ['estado','desc','peso','costo','deposito','obs','remitente','pagado','valor','fecha','fechaArriboBsAs','fechaEstimadaEntrega'];
   let updated = 0;
   for (const id of ids) {
     const idx = db.packages.findIndex(p => p.id === id);
@@ -1294,6 +1301,8 @@ app.post('/api/admin/packages/ingest', requireAdmin, (req, res) => {
       destinatario: '', deposito: it.deposito || 'Miami',
       desc: it.desc || 'Paquete en tránsito (manifiesto)',
       peso: parseFloat(it.peso) || 0, valor: 0, costo: 0, remitente: '', obs: '',
+      ...(it.fechaArriboBsAs ? { fechaArriboBsAs: it.fechaArriboBsAs } : {}),
+      ...(it.fechaEstimadaEntrega ? { fechaEstimadaEntrega: it.fechaEstimadaEntrega } : {}),
       estado, fecha: hoy, pagado: false, notificado: false, documents: null,
       historial: [{ estado, fecha: hoy, ts: Date.now() }],
     });
@@ -1308,7 +1317,7 @@ app.put('/api/admin/packages/:id', requireAdmin, async (req, res) => {
   const db  = loadDB();
   const idx = db.packages.findIndex(p => p.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Paquete no encontrado' });
-  const allowed = ['estado','desc','peso','costo','deposito','obs','remitente','pagado','valor','fecha'];
+  const allowed = ['estado','desc','peso','costo','deposito','obs','remitente','pagado','valor','fecha','fechaArriboBsAs','fechaEstimadaEntrega'];
   const oldStatus = db.packages[idx].estado;
   if (req.body.estado && req.body.estado !== oldStatus) applyETA(db.packages[idx], req.body.estado);
   allowed.forEach(k => { if (req.body[k] !== undefined) db.packages[idx][k] = req.body[k]; });
