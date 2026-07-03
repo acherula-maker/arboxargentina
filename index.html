@@ -3721,6 +3721,8 @@ async function manifConfirmApply() {
     let created = { creados: 0, omitidos: 0 };
     if (toCreate.length) created = await adminFetch('/api/admin/packages/ingest', { method: 'POST', body: { items: toCreate } });
     closeModal('modal-manif');
+    const arriboEl = document.getElementById('manif-arribo');
+    if (arriboEl) arriboEl.value = '';   // limpiar para no arrastrar la fecha al próximo manifiesto
     alert(`Listo.\n${nTransit} pasados a "En tránsito".\nCreados: ${created.creados} (omitidos: ${created.omitidos}).`);
   } catch (e) {
     console.error(e);

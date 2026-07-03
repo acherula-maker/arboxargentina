@@ -250,7 +250,7 @@ async function sendStatusChangeEmail(client, pkg, oldStatus, newStatus) {
         <div style="font-size:1.3rem;font-weight:800;color:#0a0a0a;letter-spacing:-.03em">${newStatus}</div>
         <div style="color:#666;font-size:.85rem;margin-top:12px">${statusMessages[newStatus] || 'Tu paquete ha cambiado de estado.'}</div>
       </div>
-      ${pkg.fechaArriboBsAs ? `
+      ${(newStatus === 'En tránsito' && pkg.fechaArriboBsAs) ? `
       <div style="background:#eef5ff;border-radius:10px;padding:16px 20px;margin-bottom:24px">
         <div style="font-size:.75rem;font-weight:700;color:#1565c0;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Fechas estimadas</div>
         <div style="color:#0a0a0a;font-size:.9rem">🛬 Arribo a Buenos Aires: <strong>${pkg.fechaArriboBsAs}</strong></div>
