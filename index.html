@@ -754,7 +754,6 @@ footer a:hover{color:rgba(255,255,255,.75)}
     .account-section { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     @media (max-width: 700px) { .account-section { grid-template-columns: 1fr; } }
     @media (max-width: 700px) {
-      #dashboard { padding-top: 104px; }
       .dash-body { flex-direction: column; }
       .dash-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--smoke); padding: 8px 0; overflow-x: auto; white-space: nowrap; }
       .sidebar-section { display: inline-flex; flex-direction: row; gap: 4px; padding: 0 10px; margin-bottom: 0; }
@@ -763,9 +762,17 @@ footer a:hover{color:rgba(255,255,255,.75)}
       .dash-main { padding: 14px; }
       .form-grid { grid-template-columns: 1fr !important; }
       .kpi-row { grid-template-columns: repeat(2, 1fr) !important; }
-      .table-wrap { -webkit-overflow-scrolling: touch; }
-      .table-wrap table { min-width: 540px; }
       .panel { padding: 14px; }
+      /* Tablas del panel del cliente como TARJETAS apiladas (sin scroll lateral) */
+      .dash-main .table-wrap table { min-width: 0; }
+      .dash-main .table-wrap thead { display: none; }
+      .dash-main .table-wrap tr { display: block; border: 1px solid var(--smoke); border-radius: 12px; padding: 10px 14px; margin-bottom: 10px; background: #fff; }
+      .dash-main .table-wrap td { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 5px 0; border: none; text-align: right; }
+      .dash-main .table-wrap td::before { content: attr(data-label); font-weight: 600; color: var(--gray); font-size: .76rem; text-align: left; flex-shrink: 0; }
+      .dash-main .table-wrap td[data-full] { display: block; text-align: left; }
+      .dash-main .table-wrap td[data-full]::before { content: none; }
+      .dash-main .table-wrap td[colspan] { display: block; text-align: center; }
+      .dash-main .table-wrap td[colspan]::before { content: none; }
     }
     .balance-big { font-size: 2rem; font-weight: 800; letter-spacing: -.04em; }
     .balance-red   { color: var(--danger); }
@@ -2720,6 +2727,30 @@ function whTag(d) {
   return `<span class="wh-tag ${m[d]||''}">${f[d]||''} ${d}</span>`;
 }
 
+// ── Estado canónico para el cliente ──────────────────────────────
+// Colapsa estados redundantes/legacy a los 6 pasos reales, para que el badge y la
+// barra siempre digan lo mismo. El admin sigue viendo el estado crudo (usa statusBadge).
+const ESTADO_CANON = { 'En viaje':'En tránsito', 'En depósito':'Recibido en origen', 'Pendiente':'Registrado' };
+function canonEstado(e) { return ESTADO_CANON[e] || e; }
+function clientBadge(e) { return statusBadge(canonEstado(e)); }
+
+// Fechas estimadas / coordinación: visibles desde que va en camino hasta la entrega
+// (antes desaparecían al pasar de "En tránsito", justo cuando el cliente más las quiere).
+function pkgEtaHtml(p) {
+  const enCamino = ['En tránsito','En viaje','Clasificando en BsAs'].includes(p.estado);
+  let h = '';
+  if (enCamino) {
+    if (p.estado !== 'Clasificando en BsAs' && p.fechaArriboBsAs)
+      h += `<div class="pkg-eta">🛬 Arribo estimado a BsAs: <strong>${p.fechaArriboBsAs}</strong></div>`;
+    if (p.fechaEstimadaEntrega)
+      h += `<div class="pkg-eta">📦 Entrega estimada: <strong>${p.fechaEstimadaEntrega}</strong></div>`;
+  } else if (p.estado === 'Listo para entrega') {
+    const msg = encodeURIComponent('Hola ARBOX! Quiero coordinar la entrega de mi paquete ' + p.id);
+    h += `<div class="pkg-eta">📦 <strong>Listo para entrega</strong> — coordinamos tu entrega. <a href="https://wa.me/5491140348451?text=${msg}" target="_blank" rel="noopener" style="color:#128c4b;font-weight:600;white-space:nowrap">Coordinar por WhatsApp →</a></div>`;
+  }
+  return h;
+}
+
 // Peso: muestra "Pendiente" hasta Clasificando en BsAs
 const ESTADOS_CON_PESO = ['Clasificando en BsAs','Listo para entrega','Entregado'];
 function pesoDisplay(p) {
@@ -2730,8 +2761,14 @@ function pesoDisplay(p) {
 
 // Barra de progreso
 const PROG_STEPS = ['Registrado','Recibido en origen','En tránsito','Clasificando en BsAs','Listo para entrega','Entregado'];
-function progressBar(estado) {
-  const idx = PROG_STEPS.indexOf(estado === 'En viaje' ? 'En tránsito' : estado === 'En depósito' ? 'Recibido en origen' : estado);
+// forClient: agrega el paso en palabras y el aviso de Retenido (solo vista del cliente).
+// El admin llama progressBar(estado) sin ese flag y ve la barra neutra de siempre.
+function progressBar(estado, forClient) {
+  const canon = canonEstado(estado);
+  if (forClient && canon === 'Retenido') {
+    return `<div class="prog-current" style="color:#c62828;font-weight:600;font-size:.82rem;margin-top:4px">⚠️ Retenido — te contactamos para resolverlo</div>`;
+  }
+  const idx = PROG_STEPS.indexOf(canon);
   const steps = PROG_STEPS.map((s, i) => {
     const cls = i < idx ? 'done' : i === idx ? 'active' : '';
     return `<div class="prog-step ${cls}" title="${s}"></div>`;
@@ -2741,7 +2778,9 @@ function progressBar(estado) {
     <span class="prog-label">En tránsito</span>
     <span class="prog-label">Entregado</span>
   </div>`;
-  return `<div class="pkg-progress">${steps}</div>${labels}`;
+  // Paso actual en palabras (solo cliente): en el celular los puntos no tienen label (title no anda en touch).
+  const current = (forClient && idx >= 0) ? `<div class="prog-current" style="font-size:.8rem;color:var(--mid);margin-top:3px">Ahora: <strong>${PROG_STEPS[idx]}</strong></div>` : '';
+  return `<div class="pkg-progress">${steps}</div>${labels}${current}`;
 }
 
 // Modal historial
@@ -2757,7 +2796,7 @@ function openHistory(pkgId) {
       <div class="hist-entry">
         <div class="hist-dot ${i === hist.length-1 ? 'first' : ''}"></div>
         <div class="hist-info">
-          <div class="hist-estado">${statusBadge(h.estado)}</div>
+          <div class="hist-estado">${clientBadge(h.estado)}</div>
           <div class="hist-fecha">${h.fecha}${h.ts ? ' — ' + new Date(h.ts).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : ''}</div>
         </div>
       </div>`).join('');
@@ -2979,18 +3018,17 @@ function renderPackages() {
   }
   tbody.innerHTML = list.map(p=>`
     <tr>
-      <td>
+      <td data-full>
         <code style="font-size:.8rem;color:var(--mid)">${p.id}</code>
-        ${progressBar(p.estado)}
-        ${p.estado==='En tránsito' && p.fechaArriboBsAs ? `<div class="pkg-eta">🛬 Arribo estimado a BsAs: <strong>${p.fechaArriboBsAs}</strong></div>` : ''}
-        ${p.estado==='En tránsito' && p.fechaEstimadaEntrega ? `<div class="pkg-eta">📦 Entrega estimada: <strong>${p.fechaEstimadaEntrega}</strong></div>` : ''}
+        ${progressBar(p.estado, true)}
+        ${pkgEtaHtml(p)}
       </td>
-      <td>${p.desc}</td>
-      <td>${whTag(p.deposito)}</td>
-      <td>${statusBadge(p.estado)}</td>
-      <td style="color:var(--gray);font-size:.82rem">${p.fecha}</td>
-      <td>${pesoDisplay(p)}</td>
-      <td>
+      <td data-label="Descripción">${p.desc}</td>
+      <td data-label="Depósito">${whTag(p.deposito)}</td>
+      <td data-label="Estado">${clientBadge(p.estado)}</td>
+      <td data-label="Fecha" style="color:var(--gray);font-size:.82rem">${p.fecha}</td>
+      <td data-label="Peso">${pesoDisplay(p)}</td>
+      <td data-full>
         <button onclick="openPackageDetail('${p.id}','paquetes')" style="background:var(--ink);color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer;margin-bottom:4px;display:block;width:100%">Ver</button>
         <button onclick="openHistory('${p.id}')" style="background:none;border:1px solid var(--mist);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer;color:var(--mid);margin-bottom:4px">Historial</button>
         ${p.estado==='Registrado'?`<br><button onclick="openClientEditPkg('${p.id}')" style="background:none;border:1px solid var(--mist);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer;color:var(--mid)">Editar</button>`:''}
@@ -3008,12 +3046,12 @@ function renderEntregados() {
   }
   tbody.innerHTML = list.map(p=>`
     <tr>
-      <td><code style="font-size:.8rem;color:var(--mid)">${p.id}</code></td>
-      <td>${p.desc}</td>
-      <td>${whTag(p.deposito)}</td>
-      <td>${statusBadge(p.estado)}</td>
-      <td style="color:var(--gray);font-size:.82rem">${p.fecha}</td>
-      <td><button onclick="openPackageDetail('${p.id}','entregados')" style="background:var(--ink);color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer;margin-right:4px">Ver</button><button onclick="openHistory('${p.id}')" style="background:none;border:1px solid var(--mist);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer;color:var(--mid)">Historial</button></td>
+      <td data-full><code style="font-size:.8rem;color:var(--mid)">${p.id}</code></td>
+      <td data-label="Descripción">${p.desc}</td>
+      <td data-label="Depósito">${whTag(p.deposito)}</td>
+      <td data-label="Estado">${clientBadge(p.estado)}</td>
+      <td data-label="Fecha" style="color:var(--gray);font-size:.82rem">${p.fecha}</td>
+      <td data-full><button onclick="openPackageDetail('${p.id}','entregados')" style="background:var(--ink);color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer;margin-right:4px">Ver</button><button onclick="openHistory('${p.id}')" style="background:none;border:1px solid var(--mist);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer;color:var(--mid)">Historial</button></td>
     </tr>`).join('');
 }
 
@@ -3054,8 +3092,7 @@ function closePackageDetail() {
 function detailProgress(p) {
   const histMap = {};
   (p.historial||[]).forEach(h => { if (!histMap[h.estado]) histMap[h.estado] = h.fecha; });
-  const canon = e => e==='En viaje' ? 'En tránsito' : e==='En depósito' ? 'Recibido en origen' : e;
-  const curIdx = PROG_STEPS.indexOf(canon(p.estado));
+  const curIdx = PROG_STEPS.indexOf(canonEstado(p.estado));
   return PROG_STEPS.map((s, i) => {
     const done = i < curIdx, active = i === curIdx;
     const color = done ? '#2e7d32' : active ? 'var(--ink)' : 'var(--silver)';
@@ -3069,9 +3106,7 @@ function detailProgress(p) {
 }
 
 function renderPackageDetail(p) {
-  const info = ESTADO_INFO[p.estado] || { desc:'', next:'' };
-  const eta = (p.estado==='En tránsito' && p.fechaEstimadaEntrega) ? p.fechaEstimadaEntrega : '';
-  const arriboBs = (p.estado==='En tránsito' && p.fechaArriboBsAs) ? p.fechaArriboBsAs : '';
+  const info = ESTADO_INFO[canonEstado(p.estado)] || ESTADO_INFO[p.estado] || { desc:'', next:'' };
   const pagoTxt = p.pagado ? '<span class="badge badge-green">Pagado</span>'
     : (p.costo>0 ? '<span class="badge badge-red">Pendiente</span>' : '<span style="color:var(--gray)">—</span>');
   const docs = (p.documents||[]).length
@@ -3080,14 +3115,13 @@ function renderPackageDetail(p) {
   document.getElementById('detalle-content').innerHTML = `
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:6px">
       <code style="font-size:1rem;color:var(--ink);font-weight:700">${p.id}</code>
-      ${whTag(p.deposito)} ${statusBadge(p.estado)}
+      ${whTag(p.deposito)} ${clientBadge(p.estado)}
     </div>
     <div style="font-size:1.15rem;font-weight:800;color:var(--ink);margin-bottom:16px">${p.desc||''}</div>
     <div class="panel" style="margin-bottom:16px">
       <div style="font-size:.95rem;color:var(--ink);font-weight:600;margin-bottom:6px">${info.desc}</div>
       ${info.next?`<div style="font-size:.85rem;color:var(--gray)">👉 ${info.next}</div>`:''}
-      ${arriboBs?`<div style="margin-top:10px;font-size:.9rem;color:var(--ink)">🛬 Arribo estimado a BsAs: <strong>${arriboBs}</strong> <span style="color:var(--gray);font-size:.82rem">(puede variar)</span></div>`:''}
-      ${eta?`<div style="margin-top:6px;font-size:.9rem;color:var(--ink)">📦 Entrega estimada: <strong>${eta}</strong></div>`:''}
+      ${pkgEtaHtml(p)}
     </div>
     <div class="account-section">
       <div class="panel">
@@ -3120,7 +3154,7 @@ function renderDetailHistorial(p) {
   if (!el) return;
   const hist = [...(p.historial||[])].reverse();
   el.innerHTML = hist.length
-    ? hist.map(h=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--smoke);font-size:.85rem"><span>${statusBadge(h.estado)}</span><span style="color:var(--gray)">${h.fecha}</span></div>`).join('')
+    ? hist.map(h=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--smoke);font-size:.85rem"><span>${clientBadge(h.estado)}</span><span style="color:var(--gray)">${h.fecha}</span></div>`).join('')
     : '<div style="color:var(--gray);font-size:.85rem">Sin historial.</div>';
 }
 
@@ -3160,9 +3194,9 @@ function renderRecent() {
     return;
   }
   tbody.innerHTML = list.map(p=>`<tr onclick="openPackageDetail('${p.id}','resumen')" style="cursor:pointer">
-    <td><code style="font-size:.8rem;color:var(--mid)">${p.id}</code></td>
-    <td>${p.desc}</td><td>${whTag(p.deposito)}</td><td>${statusBadge(p.estado)}</td>
-    <td>${pesoDisplay(p)}</td></tr>`).join('');
+    <td data-full><code style="font-size:.8rem;color:var(--mid)">${p.id}</code></td>
+    <td data-label="Descripción">${p.desc}</td><td data-label="Depósito">${whTag(p.deposito)}</td><td data-label="Estado">${clientBadge(p.estado)}</td>
+    <td data-label="Peso">${pesoDisplay(p)}</td></tr>`).join('');
 }
 
 function renderCC() {
@@ -3174,35 +3208,36 @@ function renderCC() {
   }
   tbody.innerHTML = [...ccMovements].reverse().map(m=>`
     <tr>
-      <td style="color:var(--gray);font-size:.82rem">${m.fecha}</td>
-      <td>${m.concepto}</td>
-      <td><code style="font-size:.78rem;color:var(--mid)">${m.ref}</code></td>
-      <td>${m.tipo==='Cargo'?'<span class="badge badge-red">Cargo</span>':'<span class="badge badge-green">Pago</span>'}</td>
-      <td class="${m.tipo==='Pago'?'cc-positive':'cc-negative'}">${m.tipo==='Pago'?'−':''}${fmt(Math.abs(m.monto))}</td>
+      <td data-label="Fecha" style="color:var(--gray);font-size:.82rem">${m.fecha}</td>
+      <td data-label="Concepto">${m.concepto}</td>
+      <td data-label="Comprobante"><code style="font-size:.78rem;color:var(--mid)">${m.ref}</code></td>
+      <td data-label="Tipo">${m.tipo==='Cargo'?'<span class="badge badge-red">Cargo</span>':'<span class="badge badge-green">Pago</span>'}</td>
+      <td data-label="Monto" class="${m.tipo==='Pago'?'cc-positive':'cc-negative'}">${m.tipo==='Pago'?'−':''}${fmt(Math.abs(m.monto))}</td>
     </tr>`).join('');
 }
 
 function refreshKPIs() {
   const active    = packages.filter(p=>p.estado!=='Entregado');
   const delivered = packages.filter(p=>p.estado==='Entregado');
-  const unpaid    = packages.filter(p=>!p.pagado && p.estado!=='Entregado');
-  const totalUnpaid = unpaid.reduce((a,p)=>a+p.costo, 0);
   const totalWeight = active.reduce((a,p)=>a+p.peso, 0);
 
-  document.getElementById('kpi-saldo').textContent      = fmt(totalUnpaid);
+  // Saldo ÚNICO = cuenta corriente (cargos − pagos). Mismo número en Resumen, Balance y Cta Cte.
+  const cargos = ccMovements.filter(m=>m.tipo==='Cargo').reduce((a,m)=>a+m.monto, 0);
+  const pagos  = ccMovements.filter(m=>m.tipo==='Pago').reduce((a,m)=>a+Math.abs(m.monto), 0);
+  const saldo  = cargos - pagos;
+
+  document.getElementById('kpi-saldo').textContent      = fmt(saldo);
   document.getElementById('kpi-pkgs').textContent       = active.length;
   document.getElementById('kpi-peso').textContent       = totalWeight.toFixed(1)+' kg';
   document.getElementById('kpi-entregados').textContent = delivered.length;
 
   const balEl = document.getElementById('balance-display');
-  balEl.textContent = fmt(totalUnpaid);
-  balEl.className   = 'balance-big '+(totalUnpaid>0?'balance-red':'balance-green');
+  balEl.textContent = fmt(saldo);
+  balEl.className   = 'balance-big '+(saldo>0?'balance-red':'balance-green');
   document.getElementById('balance-note').textContent =
-    totalUnpaid>0 ? `Tenés ${fmt(totalUnpaid)} pendiente.` : 'Tu cuenta está al día.';
+    saldo>0 ? `Tenés ${fmt(saldo)} pendiente.` : 'Tu cuenta está al día.';
 
-  const cargos = ccMovements.filter(m=>m.tipo==='Cargo').reduce((a,m)=>a+m.monto, 0);
-  const pagos  = ccMovements.filter(m=>m.tipo==='Pago').reduce((a,m)=>a+Math.abs(m.monto), 0);
-  document.getElementById('cc-saldo-pendiente').textContent = fmt(cargos-pagos);
+  document.getElementById('cc-saldo-pendiente').textContent = fmt(saldo);
   document.getElementById('cc-total').textContent           = fmt(cargos);
   document.getElementById('cc-pagado').textContent          = fmt(pagos);
 
