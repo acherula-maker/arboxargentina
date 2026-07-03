@@ -3715,7 +3715,7 @@ async function manifConfirmApply() {
       await adminFetch('/api/admin/packages/bulk', { method: 'PUT', body: { ids, fields: { estado: 'En tránsito', ...fechas } } });
     }
     const toCreate = plan.createAssigned.concat(plan.createUnassigned).map(x => ({
-      id: x.tracking, clientId: x.clientId || null, peso: x.kilos,
+      id: x.tracking, clientId: x.clientId || null, peso: x.kilos, destinatario: x.client,
       deposito: 'Miami', desc: 'Paquete en tránsito (manifiesto)', estado: 'En tránsito', ...fechas,
     }));
     let created = { creados: 0, omitidos: 0 };

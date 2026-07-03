@@ -846,6 +846,46 @@ app.post('/api/auth/register', (req, res) => {
   res.status(201).json({ ok: true, client: clientData });
 });
 
+// Datos de una invitación (público): nombre + paquetes, para la página de invitación.
+app.get('/api/invitacion/:token', (req, res) => {
+  const db = loadDB();
+  const invite = (db.invites || {})[req.params.token];
+  if (!invite) return res.json({ valid: false });
+  const packages = invite.packageIds
+    .map(id => { const p = db.packages.find(x => x.id === id); return p ? { id: p.id, desc: p.desc, estado: p.estado } : null; })
+    .filter(Boolean);
+  res.json({ valid: true, name: invite.name, packages });
+});
+
+// Alta con token de invitación (público): crea la cuenta, reclama los paquetes y devuelve la sesión.
+app.post('/api/auth/register-invite', (req, res) => {
+  const { token, email, password, phone } = req.body;
+  if (!token || !email || !password) return res.status(400).json({ error: 'Faltan datos (email y contraseña)' });
+  if (String(password).length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+  const db = loadDB();
+  const invite = (db.invites || {})[token];
+  if (!invite) return res.status(404).json({ error: 'Invitación inválida' });
+  if (db.clients.find(c => c.email?.toLowerCase() === email.toLowerCase())) {
+    return res.status(400).json({ error: 'Ese email ya está registrado. Iniciá sesión con tu cuenta.' });
+  }
+  // Derivar un username único a partir del email
+  let base = (String(email).split('@')[0] || 'cliente').toLowerCase().replace(/[^a-z0-9._-]/g, '') || 'cliente';
+  let username = base, n = 1;
+  while (db.clients.find(c => c.username?.toLowerCase() === username.toLowerCase())) username = base + (++n);
+  const newClient = { id: Date.now().toString(), name: invite.name, email, phone: phone || '', username, password };
+  db.clients.push(newClient);
+  // Reclamar los paquetes del invite (idempotente: saltea los ya tomados)
+  let claimed = 0;
+  for (const pid of invite.packageIds) {
+    const pkg = db.packages.find(p => p.id === pid);
+    if (pkg && !(pkg.clientId && !pkg.unassigned)) { pkg.clientId = newClient.id; pkg.unassigned = false; claimed++; }
+  }
+  invite.usedAt = Date.now();
+  saveDB(db, 'register-invite');
+  const { password: _pw, ...clientData } = newClient;
+  res.status(201).json({ ok: true, client: clientData, claimed });
+});
+
 // ─── Paquetes ─────────────────────────────────────────────────────────────────
 app.get('/api/packages/:clientId', (req, res) => {
   const db = loadDB();
@@ -1298,7 +1338,7 @@ app.post('/api/admin/packages/ingest', requireAdmin, (req, res) => {
     const assigned = it.clientId && db.clients.find(c => c.id === it.clientId);
     db.packages.push({
       id, clientId: assigned ? it.clientId : null, unassigned: !assigned,
-      destinatario: '', deposito: it.deposito || 'Miami',
+      destinatario: it.destinatario || '', deposito: it.deposito || 'Miami',
       desc: it.desc || 'Paquete en tránsito (manifiesto)',
       peso: parseFloat(it.peso) || 0, valor: 0, costo: 0, remitente: '', obs: '',
       ...(it.fechaArriboBsAs ? { fechaArriboBsAs: it.fechaArriboBsAs } : {}),
@@ -1310,6 +1350,23 @@ app.post('/api/admin/packages/ingest', requireAdmin, (req, res) => {
   }
   saveDB(db, 'manifiesto-ingest');
   res.status(201).json({ ok: true, creados, omitidos });
+});
+
+// Crear una invitación para un cliente sin cuenta (agrupa sus paquetes "por asignar").
+app.post('/api/admin/invites', requireAdmin, (req, res) => {
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Falta el nombre' });
+  const db = loadDB();
+  const packageIds = db.packages
+    .filter(p => p.unassigned && String(p.destinatario || '').trim() === name)
+    .map(p => p.id);
+  if (!packageIds.length) return res.status(400).json({ error: 'Ese cliente no tiene paquetes sin asignar' });
+  db.invites = db.invites || {};
+  const token = crypto.randomBytes(16).toString('hex');
+  db.invites[token] = { name, packageIds, createdAt: Date.now(), usedAt: null };
+  saveDB(db, 'crear-invitacion');
+  const origin = process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  res.status(201).json({ ok: true, token, url: `${origin}/invitacion/${token}`, count: packageIds.length });
 });
 
 // Editar paquete
