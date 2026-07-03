@@ -1728,17 +1728,13 @@ footer a:hover{color:rgba(255,255,255,.75)}
       <div class="admin-nav-item active" onclick="showAdminSection('resumen',this)">▦ Resumen global</div>
       <div class="admin-nav-item" onclick="showAdminSection('paquetes',this)">📦 Todos los paquetes</div>
       <div class="admin-nav-item" onclick="showAdminSection('escaner',this)">🔍 Escáner</div>
-      <div class="admin-nav-item" onclick="showAdminSection('por-cliente',this)">📋 Por cliente</div>
       <div class="admin-nav-item" onclick="showAdminSection('manifiesto',this)">📄 Procesar manifiesto</div>
-      <div class="admin-nav-item" onclick="showAdminSection('noasignados',this)">📥 No asignados <span id="adm-noasig-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px"></span></div>
+      <div class="admin-nav-item" onclick="showAdminSection('sindueno',this)">📥 Sin dueño <span id="adm-noasig-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px"></span></div>
       <div class="admin-nav-sep">Clientes</div>
       <div class="admin-nav-item" onclick="showAdminSection('clientes',this)">👤 Lista de clientes</div>
       <div class="admin-nav-item" onclick="showAdminSection('nuevo-cliente',this)">＋ Nuevo cliente</div>
-      <div class="admin-nav-item" onclick="showAdminSection('invitaciones',this)">✉️ Invitaciones</div>
       <div class="admin-nav-sep">Finanzas</div>
-      <div class="admin-nav-item" onclick="showAdminSection('recibos',this)">🧾 Recibos de pago</div>
-      <div class="admin-nav-item" onclick="showAdminSection('liquidaciones',this)">📄 Liquidaciones</div>
-      <div class="admin-nav-item" onclick="showAdminSection('cta-cte',this)">📊 Cta. Corriente global</div>
+      <div class="admin-nav-item" onclick="showAdminSection('cuenta',this)">💰 Cuenta corriente</div>
     </div>
 
     <div class="admin-main">
@@ -1772,6 +1768,7 @@ footer a:hover{color:rgba(255,255,255,.75)}
             <div class="admin-sub">Podés editar o eliminar cualquier paquete.</div>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
+            <span id="pkgs-flat-filters" style="display:flex;gap:8px;align-items:center">
             <input type="text" id="adm-search" placeholder="Buscar cliente, tracking..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:220px" oninput="debouncedAdminPackages()">
             <select id="adm-filter-estado" style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;background:#fff" onchange="renderAdminPackages()">
               <option value="">Todos los estados</option>
@@ -1782,10 +1779,15 @@ footer a:hover{color:rgba(255,255,255,.75)}
               <option>Listo para entrega</option>
               <option>Entregado</option>
             </select>
+            </span>
             <button onclick="openNewPkgModal()" style="padding:7px 14px;background:#2d6a4f;color:#fff;border:none;border-radius:8px;font-size:.82rem;font-weight:700;cursor:pointer;white-space:nowrap">＋ Nuevo paquete</button>
             <button id="btn-sync17" onclick="adminSync17track()" style="padding:7px 14px;background:var(--ink);color:#fff;border:none;border-radius:8px;font-size:.82rem;font-weight:700;cursor:pointer;white-space:nowrap">↻ Sync 17track</button>
+            <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;color:var(--mid);cursor:pointer;white-space:nowrap"><input type="checkbox" id="pkg-group-toggle" onchange="togglePkgView(this.checked)" style="width:16px;height:16px;cursor:pointer"> Agrupar por cliente</label>
           </div>
         </div>
+
+        <!-- VISTA PLANA (lista de todos los paquetes) -->
+        <div id="pkgs-flat">
         <!-- Barra de acción masiva -->
         <div class="bulk-bar" id="bulk-bar">
           <span class="bulk-count" id="bulk-count">0 paquetes seleccionados</span>
@@ -1812,6 +1814,34 @@ footer a:hover{color:rgba(255,255,255,.75)}
               <tbody id="adm-pkgs-body"><tr><td colspan="9" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
             </table>
           </div>
+        </div>
+        </div><!-- /pkgs-flat -->
+
+        <!-- VISTA AGRUPADA POR CLIENTE (antes: sección "Por cliente") -->
+        <div id="pkgs-grouped" style="display:none">
+          <div class="admin-sub" style="margin-bottom:12px">Escaneá para pasar paquetes al estado elegido (te avisa al cliente) y separá la mercadería por cliente.</div>
+          <div class="pc-scanbar">
+            <input type="text" id="pc-scan-input" placeholder="Escanear o escribir tracking..." onkeydown="if(event.key==='Enter')pcScan()" oninput="document.getElementById('pc-matches-dropdown')?.remove()">
+            <button class="form-submit" onclick="pcScan()">Marcar</button>
+            <label>Estado al escanear:
+              <select id="pc-scan-estado" onchange="renderPorCliente()">
+                <option>Registrado</option>
+                <option>Recibido en origen</option>
+                <option>En tránsito</option>
+                <option selected>Clasificando en BsAs</option>
+                <option>Listo para entrega</option>
+                <option>Entregado</option>
+              </select>
+            </label>
+          </div>
+          <div id="pc-scan-feedback" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:8px;font-size:.85rem;font-weight:600"></div>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0">
+            <input type="text" id="pc-search" placeholder="Buscar cliente o tracking..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:240px" oninput="debouncedPorCliente()">
+            <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;color:var(--mid);cursor:pointer">
+              <input type="checkbox" id="pc-show-entregados" onchange="renderPorCliente()" style="width:16px;height:16px;cursor:pointer"> Mostrar entregados
+            </label>
+          </div>
+          <div id="pc-groups"></div>
         </div>
       </div>
 
@@ -1855,36 +1885,8 @@ footer a:hover{color:rgba(255,255,255,.75)}
         </div>
       </div>
 
-      <!-- PAQUETES POR CLIENTE -->
-      <div class="admin-section" id="adm-por-cliente">
-        <div class="admin-title">Paquetes por cliente</div>
-        <div class="admin-sub">Separá la mercadería por cliente y escaneá todo junto. Cada escaneo pasa el paquete al estado elegido y le avisa al cliente.</div>
-        <div class="pc-scanbar">
-          <input type="text" id="pc-scan-input" placeholder="Escanear o escribir tracking..." onkeydown="if(event.key==='Enter')pcScan()" oninput="document.getElementById('pc-matches-dropdown')?.remove()">
-          <button class="form-submit" onclick="pcScan()">Marcar</button>
-          <label>Estado al escanear:
-            <select id="pc-scan-estado" onchange="renderPorCliente()">
-              <option>Registrado</option>
-              <option>Recibido en origen</option>
-              <option>En tránsito</option>
-              <option selected>Clasificando en BsAs</option>
-              <option>Listo para entrega</option>
-              <option>Entregado</option>
-            </select>
-          </label>
-        </div>
-        <div id="pc-scan-feedback" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:8px;font-size:.85rem;font-weight:600"></div>
-        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0">
-          <input type="text" id="pc-search" placeholder="Buscar cliente o tracking..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:240px" oninput="debouncedPorCliente()">
-          <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;color:var(--mid);cursor:pointer">
-            <input type="checkbox" id="pc-show-entregados" onchange="renderPorCliente()" style="width:16px;height:16px;cursor:pointer"> Mostrar entregados
-          </label>
-        </div>
-        <div id="pc-groups"></div>
-      </div>
+      <!-- (La antigua sección "Por cliente" ahora es la vista agrupada dentro de "Todos los paquetes") -->
 
-      <!-- CLIENTES -->
-      <!-- NO ASIGNADOS -->
       <!-- PROCESAR MANIFIESTO -->
       <div class="admin-section" id="adm-manifiesto">
         <div class="admin-title">Procesar manifiesto</div>
@@ -1899,28 +1901,14 @@ footer a:hover{color:rgba(255,255,255,.75)}
         <div id="manif-status" style="margin-top:14px;color:var(--gray);font-size:.85rem"></div>
       </div>
 
-      <div class="admin-section" id="adm-noasignados">
-        <div class="admin-title">Paquetes no asignados</div>
-        <div class="admin-sub">Paquetes recibidos cuyo tracking no matcheó ningún cliente. Asignalos y le llega el email de "recibido".</div>
+      <div class="admin-section" id="adm-sindueno">
+        <div class="admin-title">Paquetes sin dueño</div>
+        <div class="admin-sub">Paquetes recibidos sin cliente. Asignalos a un cliente existente (le llega el email de "recibido") o invitá al cliente por WhatsApp: al crear la cuenta, sus paquetes se enlazan solos.</div>
         <div class="panel">
           <div class="admin-table-wrap">
             <table class="admin-table">
-              <thead><tr><th>Tracking</th><th>Destinatario</th><th>Depósito</th><th>Fecha</th><th>Asignar a</th></tr></thead>
-              <tbody id="noasig-table-body"><tr><td colspan="5" style="text-align:center;color:var(--gray);padding:20px">No hay paquetes sin asignar. 🎉</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- INVITACIONES -->
-      <div class="admin-section" id="adm-invitaciones">
-        <div class="admin-title">Invitaciones</div>
-        <div class="admin-sub">Clientes sin cuenta que ya tienen paquetes cargados. Generá el link y mandáselo por WhatsApp: al crear la cuenta, sus paquetes se enlazan solos.</div>
-        <div class="panel">
-          <div class="admin-table-wrap">
-            <table class="admin-table">
-              <thead><tr><th>Cliente</th><th>Paquetes sin asignar</th><th>Acción</th></tr></thead>
-              <tbody id="adm-inv-body"><tr><td colspan="3" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
+              <thead><tr><th>Destinatario / Paquetes</th><th>Asignar a cliente existente</th><th>Invitar</th></tr></thead>
+              <tbody id="sindueno-body"><tr><td colspan="3" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -1965,9 +1953,34 @@ footer a:hover{color:rgba(255,255,255,.75)}
       </div>
 
       <!-- RECIBOS DE PAGO -->
-      <div class="admin-section" id="adm-recibos">
-        <div class="admin-title">Recibos de pago</div>
-        <div class="admin-sub">Registrá un pago y se carga automáticamente a la cuenta corriente del cliente.</div>
+      <div class="admin-section" id="adm-cuenta">
+        <div class="admin-title">Cuenta corriente</div>
+        <div class="admin-sub">Movimientos, registro de pagos y liquidaciones de todos los clientes.</div>
+        <div style="display:flex;gap:6px;margin:14px 0 8px;flex-wrap:wrap">
+          <button id="ctab-movimientos" class="cuenta-tab" onclick="cuentaTab('movimientos')" style="background:var(--ink);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:.85rem;cursor:pointer">📊 Movimientos</button>
+          <button id="ctab-pago" class="cuenta-tab" onclick="cuentaTab('pago')" style="background:none;color:var(--mid);border:1px solid var(--mist);border-radius:8px;padding:7px 14px;font-size:.85rem;cursor:pointer">🧾 Registrar pago</button>
+          <button id="ctab-liq" class="cuenta-tab" onclick="cuentaTab('liq')" style="background:none;color:var(--mid);border:1px solid var(--mist);border-radius:8px;padding:7px 14px;font-size:.85rem;cursor:pointer">📄 Liquidaciones</button>
+        </div>
+
+        <!-- Movimientos (antes: Cta Cte Global) -->
+        <div class="cuenta-sub" id="cuenta-sub-movimientos">
+          <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
+            <select id="cta-cte-filter" style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:220px;font-family:inherit" onchange="renderCtaCteGlobal()">
+              <option value="">Todos los clientes</option>
+            </select>
+          </div>
+          <div class="panel">
+            <div class="admin-table-wrap">
+              <table class="admin-table">
+                <thead><tr><th>Fecha</th><th>Cliente</th><th>Concepto</th><th>Ref</th><th>Tipo</th><th>Monto</th></tr></thead>
+                <tbody id="adm-ctacte-body"><tr><td colspan="6" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Registrar pago (antes: Recibos) -->
+        <div class="cuenta-sub" id="cuenta-sub-pago" style="display:none">
         <div class="panel" style="max-width:560px">
           <div id="recibo-ok" class="alert alert-success" style="display:none"></div>
           <div id="recibo-error" class="alert alert-error" style="display:none"></div>
@@ -2021,39 +2034,19 @@ footer a:hover{color:rgba(255,255,255,.75)}
         </div>
       </div>
 
-      <!-- CTA CTE GLOBAL -->
-      <div class="admin-section" id="adm-cta-cte">
-        <div class="admin-title">Cuenta Corriente Global</div>
-        <div class="admin-sub">Todos los movimientos de todos los clientes.</div>
-        <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
-          <select id="cta-cte-filter" style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:220px;font-family:inherit" onchange="renderCtaCteGlobal()">
-            <option value="">Todos los clientes</option>
-          </select>
-        </div>
-        <div class="panel">
-          <div class="admin-table-wrap">
-            <table class="admin-table">
-              <thead><tr><th>Fecha</th><th>Cliente</th><th>Concepto</th><th>Ref</th><th>Tipo</th><th>Monto</th></tr></thead>
-              <tbody id="adm-ctacte-body"><tr><td colspan="6" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
-            </table>
+        <!-- Liquidaciones (historial) -->
+        <div class="cuenta-sub" id="cuenta-sub-liq" style="display:none">
+          <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
+            <input type="text" id="liq-hist-search" placeholder="Buscar por cliente, N° o fecha..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:280px;font-family:inherit" oninput="debouncedLiquidaciones()">
+            <button onclick="loadLiquidaciones()" style="background:none;border:1px solid var(--mist);border-radius:8px;padding:7px 12px;font-size:.82rem;cursor:pointer;color:var(--mid)">↻ Actualizar</button>
           </div>
-        </div>
-      </div>
-
-      <!-- LIQUIDACIONES (historial) -->
-      <div class="admin-section" id="adm-liquidaciones">
-        <div class="admin-title">Liquidaciones</div>
-        <div class="admin-sub">Historial de todas las liquidaciones. Reenviá por email o WhatsApp, o reimprimí el PDF.</div>
-        <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
-          <input type="text" id="liq-hist-search" placeholder="Buscar por cliente, N° o fecha..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:280px;font-family:inherit" oninput="debouncedLiquidaciones()">
-          <button onclick="loadLiquidaciones()" style="background:none;border:1px solid var(--mist);border-radius:8px;padding:7px 12px;font-size:.82rem;cursor:pointer;color:var(--mid)">↻ Actualizar</button>
-        </div>
-        <div class="panel">
-          <div class="admin-table-wrap">
-            <table class="admin-table">
-              <thead><tr><th>Fecha</th><th>N°</th><th>Cliente</th><th>Paq.</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead>
-              <tbody id="adm-liq-body"><tr><td colspan="7" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
-            </table>
+          <div class="panel">
+            <div class="admin-table-wrap">
+              <table class="admin-table">
+                <thead><tr><th>Fecha</th><th>N°</th><th>Cliente</th><th>Paq.</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead>
+                <tbody id="adm-liq-body"><tr><td colspan="7" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -3612,15 +3605,11 @@ let adminActiveSection = 'resumen';
 function renderAdminSection(name) {
   switch (name) {
     case 'resumen':       renderAdminResumen(); break;
-    case 'paquetes':      renderAdminPackages(); break;
+    case 'paquetes':      renderPaquetes(); break;
     case 'escaner':       renderScanTable(); break;
-    case 'por-cliente':   renderPorCliente(); break;
-    case 'noasignados':   renderUnassigned(); break;
-    case 'invitaciones':  renderInvitaciones(); break;
+    case 'sindueno':      renderSinDueno(); break;
     case 'clientes':      renderAdminClients(); break;
-    case 'recibos':       populateReciboClients(); renderRecibos(); break;
-    case 'cta-cte':       populateReciboClients(); renderCtaCteGlobal(); break;
-    case 'liquidaciones': loadLiquidaciones(); break;
+    case 'cuenta':        cuentaTab(cuentaActiveTab); break;
     // 'manifiesto' y 'nuevo-cliente' no dependen de datos: no hay nada que re-renderizar.
   }
 }
@@ -3683,29 +3672,37 @@ function debouncedAdminPackages() { _debounced('pkgs', renderAdminPackages); }
 function debouncedPorCliente()    { _debounced('pc',   renderPorCliente); }
 function debouncedLiquidaciones()  { _debounced('liq',  renderLiquidaciones); }
 
-// ─── Invitaciones (Fase 2) ───────────────────────────────────────
-let invNames = [];      // nombres detectados (referencia por índice)
-let invLastMsg = '';    // último mensaje generado (para copiar / WhatsApp)
-
-function renderInvitaciones() {
-  const tbody = document.getElementById('adm-inv-body');
-  if (!tbody) return;
-  const groups = {};
-  (adminPackages || []).forEach(p => {
-    const n = (p.destinatario || '').trim();
-    if (p.unassigned && n) groups[n] = (groups[n] || 0) + 1;
+// ─── Cuenta corriente: sub-pestañas (Movimientos / Registrar pago / Liquidaciones) ───
+let cuentaActiveTab = 'movimientos';
+function cuentaTab(name) {
+  cuentaActiveTab = name;
+  ['movimientos','pago','liq'].forEach(k => {
+    const p = document.getElementById('cuenta-sub-' + k); if (p) p.style.display = (k === name) ? '' : 'none';
+    const t = document.getElementById('ctab-' + k);
+    if (t) { const on = (k === name); t.style.background = on ? 'var(--ink)' : 'none'; t.style.color = on ? '#fff' : 'var(--mid)'; t.style.border = on ? 'none' : '1px solid var(--mist)'; }
   });
-  invNames = Object.keys(groups).sort();
-  if (!invNames.length) {
-    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--gray);padding:20px">No hay clientes sin cuenta con paquetes por asignar.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = invNames.map((n, i) => `<tr>
-      <td>${manifEsc(n)}</td>
-      <td style="text-align:center">${groups[n]}</td>
-      <td><button onclick="invGenerate(this, invNames[${i}])" style="background:var(--ink);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:.8rem;cursor:pointer">Generar invitación</button></td>
-    </tr>`).join('');
+  populateReciboClients();              // llena los dropdowns de Movimientos y Registrar pago
+  if (name === 'movimientos') renderCtaCteGlobal();
+  else if (name === 'pago')   renderRecibos();
+  else if (name === 'liq')    loadLiquidaciones();
 }
+
+// ─── "Todos los paquetes": alterna vista plana / agrupada por cliente ───
+let pkgGrouped = false;
+function renderPaquetes() { if (pkgGrouped) renderPorCliente(); else renderAdminPackages(); }
+function togglePkgView(on) {
+  pkgGrouped = !!on;
+  const flat = document.getElementById('pkgs-flat');
+  const grouped = document.getElementById('pkgs-grouped');
+  const flatFilters = document.getElementById('pkgs-flat-filters'); // buscador/filtro de la vista plana
+  if (flat) flat.style.display = pkgGrouped ? 'none' : '';
+  if (grouped) grouped.style.display = pkgGrouped ? '' : 'none';
+  if (flatFilters) flatFilters.style.display = pkgGrouped ? 'none' : 'flex';
+  renderPaquetes();
+}
+
+// ─── Invitaciones (Fase 2) ───────────────────────────────────────
+let invLastMsg = '';    // último mensaje generado (para copiar / WhatsApp)
 
 async function invGenerate(btn, name) {
   const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Generando...';
@@ -4292,37 +4289,67 @@ async function crearCliente() {
 }
 
 // ── Bandeja de No asignados ──────────────────────────────────────
-let unassignedList = [];
-function renderUnassigned() {
-  unassignedList = adminPackages.filter(p => p.unassigned);
+// "Sin dueño" (fusión de No asignados + Invitaciones): agrupa por destinatario.
+// Grupos con nombre: asignar todo a un cliente existente O invitar por WhatsApp.
+// Paquetes sin nombre: asignación individual (no se pueden invitar sin nombre).
+let sdGroups = [];
+let sdSingles = [];
+
+function renderSinDueno() {
+  const list = adminPackages.filter(p => p.unassigned);
   const badge = document.getElementById('adm-noasig-badge');
-  if (badge) { badge.textContent = unassignedList.length; badge.style.display = unassignedList.length ? 'inline-block' : 'none'; }
-  const tbody = document.getElementById('noasig-table-body');
+  if (badge) { badge.textContent = list.length; badge.style.display = list.length ? 'inline-block' : 'none'; }
+  const tbody = document.getElementById('sindueno-body');
   if (!tbody) return;
-  if (!unassignedList.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--gray);padding:20px">No hay paquetes sin asignar. 🎉</td></tr>';
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--gray);padding:20px">No hay paquetes sin dueño. 🎉</td></tr>';
     return;
   }
-  const opts = adminClients.map(c => `<option value="${c.id}">${c.name} (@${c.username})</option>`).join('');
-  tbody.innerHTML = unassignedList.map((p, i) => `
-    <tr>
-      <td><code style="font-size:.75rem">${p.id}</code></td>
-      <td>${p.destinatario ? manifEsc(p.destinatario) : '<span style="color:var(--gray)">—</span>'}</td>
-      <td>${whTag(p.deposito)}</td>
-      <td style="color:var(--gray);font-size:.82rem">${p.fecha}</td>
-      <td style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <select id="noasig-sel-${i}" style="padding:6px 8px;border:1.5px solid var(--mist);border-radius:6px;font-size:.82rem"><option value="">— Cliente —</option>${opts}</select>
-        <button class="btn-edit" onclick="asignarPaquete(${i})">Asignar</button>
-      </td>
+  const opts = '<option value="">— Cliente —</option>' + adminClients.map(c => `<option value="${c.id}">${manifEsc(c.name)} (@${manifEsc(c.username)})</option>`).join('');
+  const named = {}, unnamed = [];
+  list.forEach(p => {
+    const n = (p.destinatario || '').trim();
+    if (n) (named[n] = named[n] || []).push(p);
+    else unnamed.push(p);
+  });
+  sdGroups = Object.keys(named).sort().map(n => ({ name: n, pkgs: named[n] }));
+  sdSingles = unnamed;
+  const selStyle = 'padding:6px 8px;border:1.5px solid var(--mist);border-radius:6px;font-size:.82rem';
+  let html = sdGroups.map((g, gi) => {
+    const trk = g.pkgs.map(p => `<code style="font-size:.72rem;color:var(--mid)">${manifEsc(p.id)}</code>`).join(' ');
+    return `<tr>
+      <td><strong>${manifEsc(g.name)}</strong><div style="color:var(--gray);font-size:.74rem;margin-top:3px">${g.pkgs.length} paquete(s): ${trk}</div></td>
+      <td style="white-space:nowrap"><select id="sd-sel-${gi}" style="${selStyle}">${opts}</select> <button class="btn-edit" onclick="sdAssignGroup(${gi})">Asignar todos</button></td>
+      <td><button onclick="invGenerate(this, sdGroups[${gi}].name)" style="background:#25d366;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:.8rem;cursor:pointer">📲 Invitar</button></td>
+    </tr>`;
+  }).join('');
+  html += sdSingles.map((p, si) => `<tr>
+      <td><code style="font-size:.72rem;color:var(--mid)">${manifEsc(p.id)}</code> <span style="color:var(--gray);font-size:.74rem">${whTag(p.deposito)} · ${p.fecha}</span><div style="color:var(--gray);font-size:.72rem">(sin nombre)</div></td>
+      <td style="white-space:nowrap"><select id="sd-single-${si}" style="${selStyle}">${opts}</select> <button class="btn-edit" onclick="sdAssignSingle(${si})">Asignar</button></td>
+      <td style="color:var(--gray);font-size:.75rem">—</td>
     </tr>`).join('');
+  tbody.innerHTML = html;
 }
 
-async function asignarPaquete(i) {
-  const p = unassignedList[i]; if (!p) return;
-  const clientId = document.getElementById('noasig-sel-' + i)?.value;
+async function sdAssignGroup(gi) {
+  const g = sdGroups[gi]; if (!g) return;
+  const clientId = document.getElementById('sd-sel-' + gi)?.value;
+  if (!clientId) { alert('Elegí un cliente para asignar.'); return; }
+  let failed = 0;
+  for (const p of g.pkgs) {
+    try { await adminFetch('/api/admin/packages/' + encodeURIComponent(p.id) + '/assign', { method: 'PUT', body: { clientId } }); }
+    catch (e) { failed++; }
+  }
+  if (failed) alert(failed + ' paquete(s) no se pudieron asignar. Reintentá con los que quedan.');
+  await loadAdminData();   // refresca la UI aunque alguno haya fallado
+}
+
+async function sdAssignSingle(si) {
+  const p = sdSingles[si]; if (!p) return;
+  const clientId = document.getElementById('sd-single-' + si)?.value;
   if (!clientId) { alert('Elegí un cliente para asignar.'); return; }
   try {
-    await adminFetch('/api/admin/packages/' + encodeURIComponent(p.id) + '/assign', { method:'PUT', body:{ clientId } });
+    await adminFetch('/api/admin/packages/' + encodeURIComponent(p.id) + '/assign', { method: 'PUT', body: { clientId } });
     await loadAdminData();
   } catch (e) { alert('No se pudo asignar el paquete.'); }
 }
