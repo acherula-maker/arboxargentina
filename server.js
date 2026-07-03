@@ -26,6 +26,15 @@ app.use((req, res, next) => {
 // ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(cors());
 
+// Bloquear archivos sensibles del repo: aunque estén en el root, no deben servirse.
+// Lista negra por archivo (NO por extensión) porque manifest-core.js sí es público.
+// Cubre: base de datos con credenciales, código del server, config, deploy y docs.
+const BLOCKED_PATHS = /^\/(?:db\.json|server\.js|package(?:-lock)?\.json|deploy\.sh|\.env|[^/]*\.md|[^/]*\.backup|docs\/)/i;
+app.use((req, res, next) => {
+  if (BLOCKED_PATHS.test(req.path)) return res.status(404).send('Not found');
+  next();
+});
+
 // Static files con Cache-Control diferenciado por tipo
 app.use(express.static(__dirname, {
   setHeaders(res, filePath) {
@@ -1237,24 +1246,8 @@ app.get('/api/movements/:clientId', (req, res) => {
   res.json(mvs);
 });
 
-app.post('/api/payments', (req, res) => {
-  const { clientId, monto } = req.body;
-  if (!clientId || !monto || monto <= 0) {
-    return res.status(400).json({ error: 'Datos de pago inválidos' });
-  }
-  const db  = loadDB();
-  const ref = `TRF-${Math.floor(Math.random() * 9000 + 1000)}`;
-  db.movements.push({
-    fecha:    new Date().toISOString().split('T')[0],
-    concepto: 'Pago cliente',
-    ref,
-    tipo:     'Pago',
-    monto:    -parseFloat(monto),
-    clientId,
-  });
-  saveDB(db, 'client-payment');
-  res.json({ ok: true, ref });
-});
+// (Eliminado POST /api/payments: sin autenticación y sin llamador — permitía acreditar
+//  pagos a cualquier cuenta. El flujo real de pagos es POST /api/admin/payments, con auth.)
 
 // ─── Clientes (admin) ─────────────────────────────────────────────────────────
 app.get('/api/clients', (req, res) => {
