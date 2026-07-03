@@ -3204,11 +3204,11 @@ function renderCC() {
   }
   tbody.innerHTML = [...ccMovements].reverse().map(m=>`
     <tr>
-      <td style="color:var(--gray);font-size:.82rem">${m.fecha}</td>
-      <td>${m.concepto}</td>
-      <td><code style="font-size:.78rem;color:var(--mid)">${m.ref}</code></td>
-      <td>${m.tipo==='Cargo'?'<span class="badge badge-red">Cargo</span>':'<span class="badge badge-green">Pago</span>'}</td>
-      <td class="${m.tipo==='Pago'?'cc-positive':'cc-negative'}">${m.tipo==='Pago'?'−':''}${fmt(Math.abs(m.monto))}</td>
+      <td data-label="Fecha" style="color:var(--gray);font-size:.82rem">${m.fecha}</td>
+      <td data-label="Concepto">${m.concepto}</td>
+      <td data-label="Comprobante"><code style="font-size:.78rem;color:var(--mid)">${m.ref}</code></td>
+      <td data-label="Tipo">${m.tipo==='Cargo'?'<span class="badge badge-red">Cargo</span>':'<span class="badge badge-green">Pago</span>'}</td>
+      <td data-label="Monto" class="${m.tipo==='Pago'?'cc-positive':'cc-negative'}">${m.tipo==='Pago'?'−':''}${fmt(Math.abs(m.monto))}</td>
     </tr>`).join('');
 }
 
