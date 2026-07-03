@@ -1997,6 +1997,11 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// ─── Página de invitación → index.html (la vista de alta la maneja el front) ──
+app.get('/invitacion/:token', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 // ─── Iniciar servidor ─────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`

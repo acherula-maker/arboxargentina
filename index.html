@@ -883,6 +883,7 @@ footer a:hover{color:rgba(255,255,255,.75)}
 </head>
 <body>
 <!-- Meta Pixel (noscript) --><noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=943206914715277&ev=PageView&noscript=1" alt=""/></noscript>
+<div id="invite-view" style="display:none;min-height:100vh;background:var(--smoke);padding:40px 16px"></div>
 <div id="landing">
 
 <!-- ── LANG BAR ── -->
@@ -1726,6 +1727,7 @@ footer a:hover{color:rgba(255,255,255,.75)}
       <div class="admin-nav-sep">Clientes</div>
       <div class="admin-nav-item" onclick="showAdminSection('clientes',this)">👤 Lista de clientes</div>
       <div class="admin-nav-item" onclick="showAdminSection('nuevo-cliente',this)">＋ Nuevo cliente</div>
+      <div class="admin-nav-item" onclick="showAdminSection('invitaciones',this)">✉️ Invitaciones</div>
       <div class="admin-nav-sep">Finanzas</div>
       <div class="admin-nav-item" onclick="showAdminSection('recibos',this)">🧾 Recibos de pago</div>
       <div class="admin-nav-item" onclick="showAdminSection('liquidaciones',this)">📄 Liquidaciones</div>
@@ -1899,6 +1901,29 @@ footer a:hover{color:rgba(255,255,255,.75)}
               <thead><tr><th>Tracking</th><th>Destinatario</th><th>Depósito</th><th>Fecha</th><th>Asignar a</th></tr></thead>
               <tbody id="noasig-table-body"><tr><td colspan="5" style="text-align:center;color:var(--gray);padding:20px">No hay paquetes sin asignar. 🎉</td></tr></tbody>
             </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- INVITACIONES -->
+      <div class="admin-section" id="adm-invitaciones">
+        <div class="admin-title">Invitaciones</div>
+        <div class="admin-sub">Clientes sin cuenta que ya tienen paquetes cargados. Generá el link y mandáselo por WhatsApp: al crear la cuenta, sus paquetes se enlazan solos.</div>
+        <div class="panel">
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead><tr><th>Cliente</th><th>Paquetes sin asignar</th><th>Acción</th></tr></thead>
+              <tbody id="adm-inv-body"><tr><td colspan="3" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="inv-link-box" style="display:none;margin-top:16px;padding:16px;border:1.5px solid var(--mist);border-radius:10px;background:var(--smoke)">
+          <div style="font-weight:700;font-size:.9rem;margin-bottom:8px" id="inv-link-title"></div>
+          <textarea id="inv-link-msg" readonly rows="4" style="width:100%;padding:10px;border:1px solid var(--mist);border-radius:8px;font-size:.82rem;font-family:inherit;resize:vertical"></textarea>
+          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-save" style="background:#1565c0" onclick="invCopyMsg()">📋 Copiar mensaje</button>
+            <button class="btn-save" style="background:#25d366" onclick="invOpenWhatsApp()">📲 Abrir WhatsApp</button>
+            <button class="btn-cancel-modal" onclick="document.getElementById('inv-link-box').style.display='none'">Cerrar</button>
           </div>
         </div>
       </div>
@@ -3472,7 +3497,71 @@ async function doForgotPassword() {
 }
 
 // ─── Restore session from localStorage ───────────────────────────
+// ─── Vista de invitación (Fase 2) ───────────────────────────────
+async function showInviteView(token) {
+  const view = document.getElementById('invite-view');
+  document.getElementById('landing').style.display = 'none';
+  view.style.display = 'block';
+  view.innerHTML = '<div style="max-width:480px;margin:60px auto;color:var(--gray);text-align:center">Cargando tu invitación...</div>';
+  let data;
+  try { data = await apiFetch('/api/invitacion/' + encodeURIComponent(token)); }
+  catch { data = { valid: false }; }
+  if (!data || !data.valid) {
+    view.innerHTML = '<div style="max-width:480px;margin:60px auto;background:#fff;border-radius:14px;padding:32px;text-align:center;border:1px solid var(--mist)">'
+      + '<div style="font-size:2rem">🔗</div><div style="font-weight:800;font-size:1.1rem;margin:10px 0">Invitación no válida</div>'
+      + '<div style="color:var(--gray);font-size:.9rem">Este link no es válido. Pedile a Arbox uno nuevo, o <a href="/">entrá a tu cuenta</a>.</div></div>';
+    return;
+  }
+  const rows = (data.packages || []).map(p => `<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--smoke)">
+      <div style="font-size:.85rem"><code style="font-size:.72rem;color:var(--gray)">${p.id}</code><br>${p.desc || ''}</div>
+      <div style="font-size:.78rem;color:var(--mid);white-space:nowrap">${p.estado || ''}</div></div>`).join('');
+  view.innerHTML = `<div style="max-width:480px;margin:0 auto;background:#fff;border-radius:14px;padding:28px;border:1px solid var(--mist)">
+      <div style="font-weight:900;font-size:1.2rem;letter-spacing:-.02em">Arbox Argentina</div>
+      <div style="font-size:1.15rem;font-weight:800;margin-top:14px">Hola ${data.name} 👋</div>
+      <div style="color:var(--mid);font-size:.9rem;margin-top:4px">Ya tenemos tus paquetes cargados. Creá tu cuenta para seguirlos y coordinar la entrega.</div>
+      <div style="margin:18px 0;padding:14px;background:var(--smoke);border-radius:10px">
+        <div style="font-weight:700;font-size:.8rem;text-transform:uppercase;color:var(--gray);letter-spacing:.5px;margin-bottom:6px">Tus paquetes (${(data.packages || []).length})</div>
+        ${rows || '<div style="color:var(--gray);font-size:.85rem">—</div>'}
+      </div>
+      <div id="inv-form-err" style="display:none;background:#ffebee;color:#c62828;border-radius:8px;padding:10px;font-size:.85rem;margin-bottom:10px"></div>
+      <input id="inv-email" type="email" placeholder="Tu email" style="width:100%;padding:11px 14px;border:1.5px solid var(--mist);border-radius:8px;font-size:.95rem;margin-bottom:10px;font-family:inherit;box-sizing:border-box">
+      <input id="inv-pass" type="password" placeholder="Elegí una contraseña (mín. 6)" style="width:100%;padding:11px 14px;border:1.5px solid var(--mist);border-radius:8px;font-size:.95rem;margin-bottom:10px;font-family:inherit;box-sizing:border-box">
+      <input id="inv-phone" type="tel" placeholder="WhatsApp (opcional)" style="width:100%;padding:11px 14px;border:1.5px solid var(--mist);border-radius:8px;font-size:.95rem;margin-bottom:14px;font-family:inherit;box-sizing:border-box">
+      <button id="inv-submit" onclick="submitInvite('${token}')" class="form-submit" style="width:100%;margin:0">Crear mi cuenta y ver mis paquetes</button>
+      <div style="text-align:center;margin-top:12px;font-size:.82rem;color:var(--gray)">¿Ya tenés cuenta? <a href="/">Iniciá sesión</a></div>
+    </div>`;
+}
+
+async function submitInvite(token) {
+  const err = document.getElementById('inv-form-err');
+  const email = (document.getElementById('inv-email').value || '').trim();
+  const pass = document.getElementById('inv-pass').value || '';
+  const phone = (document.getElementById('inv-phone').value || '').trim();
+  err.style.display = 'none';
+  if (!email || !pass) { err.textContent = 'Completá tu email y una contraseña.'; err.style.display = 'block'; return; }
+  const btn = document.getElementById('inv-submit'); const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Creando...';
+  try {
+    const res = await apiFetch('/api/auth/register-invite', { method: 'POST', body: JSON.stringify({ token, email, password: pass, phone }) });
+    currentClient = res.client;
+    localStorage.setItem('arbox_session', JSON.stringify({ client: res.client }));
+    history.replaceState({}, '', '/');
+    document.getElementById('invite-view').style.display = 'none';
+    try { await loadClientData(); } catch (e) { /* la sesión se mantiene igual */ }
+    openDashboard();
+  } catch (e) {
+    let m = 'No se pudo crear la cuenta.';
+    try { m = JSON.parse(e.message).error || m; } catch {}
+    err.textContent = m; err.style.display = 'block';
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+
 (async function restoreSession() {
+  // 0) Invitación: /invitacion/<token> → vista de alta con paquetes precargados
+  const invMatch = location.pathname.match(/^\/invitacion\/([a-f0-9]+)/i);
+  if (invMatch) { showInviteView(invMatch[1]); return; }
+
   // 1) Admin: se mantiene logueado 45 min (con expiración)
   try {
     const rawAdmin = localStorage.getItem('arbox_admin');
@@ -3599,6 +3688,61 @@ function showAdminSection(name, el) {
   document.getElementById('adm-'+name).classList.add('active');
   if (el) el.classList.add('active');
   if (name === 'liquidaciones') loadLiquidaciones();
+  if (name === 'invitaciones') renderInvitaciones();
+}
+
+// ─── Invitaciones (Fase 2) ───────────────────────────────────────
+let invNames = [];      // nombres detectados (referencia por índice)
+let invLastMsg = '';    // último mensaje generado (para copiar / WhatsApp)
+
+function renderInvitaciones() {
+  const tbody = document.getElementById('adm-inv-body');
+  if (!tbody) return;
+  const groups = {};
+  (adminPackages || []).forEach(p => {
+    const n = (p.destinatario || '').trim();
+    if (p.unassigned && n) groups[n] = (groups[n] || 0) + 1;
+  });
+  invNames = Object.keys(groups).sort();
+  if (!invNames.length) {
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--gray);padding:20px">No hay clientes sin cuenta con paquetes por asignar.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = invNames.map((n, i) => `<tr>
+      <td>${manifEsc(n)}</td>
+      <td style="text-align:center">${groups[n]}</td>
+      <td><button onclick="invGenerate(this, invNames[${i}])" style="background:var(--ink);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:.8rem;cursor:pointer">Generar invitación</button></td>
+    </tr>`).join('');
+}
+
+async function invGenerate(btn, name) {
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Generando...';
+  try {
+    const res = await adminFetch('/api/admin/invites', { method: 'POST', body: { name } });
+    invLastMsg = `Hola ${name}! 👋 Tenés ${res.count} paquete(s) en Arbox ya cargados. Creá tu cuenta para seguirlos y coordinar la entrega: ${res.url}`;
+    document.getElementById('inv-link-title').textContent = `Invitación para ${name} (${res.count} paquete/s)`;
+    document.getElementById('inv-link-msg').value = invLastMsg;
+    const box = document.getElementById('inv-link-box');
+    box.style.display = 'block';
+    box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch (e) {
+    let m = 'No se pudo generar la invitación.';
+    try { m = JSON.parse(e.message).error || m; } catch {}
+    alert(m);
+  } finally { btn.disabled = false; btn.textContent = orig; }
+}
+
+function invCopyMsg() {
+  const ta = document.getElementById('inv-link-msg');
+  ta.select(); ta.setSelectionRange(0, 99999);
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(ta.value).then(() => alert('Mensaje copiado. Pegalo en el WhatsApp del cliente.'), () => {});
+  } else { try { document.execCommand('copy'); alert('Mensaje copiado.'); } catch (e) {} }
+}
+
+function invOpenWhatsApp() {
+  if (!invLastMsg) return;
+  window.open('https://wa.me/?text=' + encodeURIComponent(invLastMsg), '_blank');
 }
 
 // ─── Procesar manifiesto ─────────────────────────────────────────
