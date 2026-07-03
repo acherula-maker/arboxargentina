@@ -771,6 +771,8 @@ footer a:hover{color:rgba(255,255,255,.75)}
       .dash-main .table-wrap td::before { content: attr(data-label); font-weight: 600; color: var(--gray); font-size: .76rem; text-align: left; flex-shrink: 0; }
       .dash-main .table-wrap td[data-full] { display: block; text-align: left; }
       .dash-main .table-wrap td[data-full]::before { content: none; }
+      .dash-main .table-wrap td[colspan] { display: block; text-align: center; }
+      .dash-main .table-wrap td[colspan]::before { content: none; }
     }
     .balance-big { font-size: 2rem; font-weight: 800; letter-spacing: -.04em; }
     .balance-red   { color: var(--danger); }
@@ -2759,9 +2761,11 @@ function pesoDisplay(p) {
 
 // Barra de progreso
 const PROG_STEPS = ['Registrado','Recibido en origen','En tránsito','Clasificando en BsAs','Listo para entrega','Entregado'];
-function progressBar(estado) {
+// forClient: agrega el paso en palabras y el aviso de Retenido (solo vista del cliente).
+// El admin llama progressBar(estado) sin ese flag y ve la barra neutra de siempre.
+function progressBar(estado, forClient) {
   const canon = canonEstado(estado);
-  if (canon === 'Retenido') {
+  if (forClient && canon === 'Retenido') {
     return `<div class="prog-current" style="color:#c62828;font-weight:600;font-size:.82rem;margin-top:4px">⚠️ Retenido — te contactamos para resolverlo</div>`;
   }
   const idx = PROG_STEPS.indexOf(canon);
@@ -2774,8 +2778,8 @@ function progressBar(estado) {
     <span class="prog-label">En tránsito</span>
     <span class="prog-label">Entregado</span>
   </div>`;
-  // Paso actual en palabras: en el celular los puntos no tienen label (title no anda en touch).
-  const current = idx >= 0 ? `<div class="prog-current" style="font-size:.8rem;color:var(--mid);margin-top:3px">Ahora: <strong>${PROG_STEPS[idx]}</strong></div>` : '';
+  // Paso actual en palabras (solo cliente): en el celular los puntos no tienen label (title no anda en touch).
+  const current = (forClient && idx >= 0) ? `<div class="prog-current" style="font-size:.8rem;color:var(--mid);margin-top:3px">Ahora: <strong>${PROG_STEPS[idx]}</strong></div>` : '';
   return `<div class="pkg-progress">${steps}</div>${labels}${current}`;
 }
 
@@ -2792,7 +2796,7 @@ function openHistory(pkgId) {
       <div class="hist-entry">
         <div class="hist-dot ${i === hist.length-1 ? 'first' : ''}"></div>
         <div class="hist-info">
-          <div class="hist-estado">${statusBadge(h.estado)}</div>
+          <div class="hist-estado">${clientBadge(h.estado)}</div>
           <div class="hist-fecha">${h.fecha}${h.ts ? ' — ' + new Date(h.ts).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : ''}</div>
         </div>
       </div>`).join('');
@@ -3016,7 +3020,7 @@ function renderPackages() {
     <tr>
       <td data-full>
         <code style="font-size:.8rem;color:var(--mid)">${p.id}</code>
-        ${progressBar(p.estado)}
+        ${progressBar(p.estado, true)}
         ${pkgEtaHtml(p)}
       </td>
       <td data-label="Descripción">${p.desc}</td>
