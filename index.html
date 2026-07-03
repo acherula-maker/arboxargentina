@@ -1730,11 +1730,10 @@ footer a:hover{color:rgba(255,255,255,.75)}
       <div class="admin-nav-item" onclick="showAdminSection('escaner',this)">🔍 Escáner</div>
       <div class="admin-nav-item" onclick="showAdminSection('por-cliente',this)">📋 Por cliente</div>
       <div class="admin-nav-item" onclick="showAdminSection('manifiesto',this)">📄 Procesar manifiesto</div>
-      <div class="admin-nav-item" onclick="showAdminSection('noasignados',this)">📥 No asignados <span id="adm-noasig-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px"></span></div>
+      <div class="admin-nav-item" onclick="showAdminSection('sindueno',this)">📥 Sin dueño <span id="adm-noasig-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px"></span></div>
       <div class="admin-nav-sep">Clientes</div>
       <div class="admin-nav-item" onclick="showAdminSection('clientes',this)">👤 Lista de clientes</div>
       <div class="admin-nav-item" onclick="showAdminSection('nuevo-cliente',this)">＋ Nuevo cliente</div>
-      <div class="admin-nav-item" onclick="showAdminSection('invitaciones',this)">✉️ Invitaciones</div>
       <div class="admin-nav-sep">Finanzas</div>
       <div class="admin-nav-item" onclick="showAdminSection('recibos',this)">🧾 Recibos de pago</div>
       <div class="admin-nav-item" onclick="showAdminSection('liquidaciones',this)">📄 Liquidaciones</div>
@@ -1899,28 +1898,14 @@ footer a:hover{color:rgba(255,255,255,.75)}
         <div id="manif-status" style="margin-top:14px;color:var(--gray);font-size:.85rem"></div>
       </div>
 
-      <div class="admin-section" id="adm-noasignados">
-        <div class="admin-title">Paquetes no asignados</div>
-        <div class="admin-sub">Paquetes recibidos cuyo tracking no matcheó ningún cliente. Asignalos y le llega el email de "recibido".</div>
+      <div class="admin-section" id="adm-sindueno">
+        <div class="admin-title">Paquetes sin dueño</div>
+        <div class="admin-sub">Paquetes recibidos sin cliente. Asignalos a un cliente existente (le llega el email de "recibido") o invitá al cliente por WhatsApp: al crear la cuenta, sus paquetes se enlazan solos.</div>
         <div class="panel">
           <div class="admin-table-wrap">
             <table class="admin-table">
-              <thead><tr><th>Tracking</th><th>Destinatario</th><th>Depósito</th><th>Fecha</th><th>Asignar a</th></tr></thead>
-              <tbody id="noasig-table-body"><tr><td colspan="5" style="text-align:center;color:var(--gray);padding:20px">No hay paquetes sin asignar. 🎉</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- INVITACIONES -->
-      <div class="admin-section" id="adm-invitaciones">
-        <div class="admin-title">Invitaciones</div>
-        <div class="admin-sub">Clientes sin cuenta que ya tienen paquetes cargados. Generá el link y mandáselo por WhatsApp: al crear la cuenta, sus paquetes se enlazan solos.</div>
-        <div class="panel">
-          <div class="admin-table-wrap">
-            <table class="admin-table">
-              <thead><tr><th>Cliente</th><th>Paquetes sin asignar</th><th>Acción</th></tr></thead>
-              <tbody id="adm-inv-body"><tr><td colspan="3" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
+              <thead><tr><th>Destinatario / Paquetes</th><th>Asignar a cliente existente</th><th>Invitar</th></tr></thead>
+              <tbody id="sindueno-body"><tr><td colspan="3" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -3615,8 +3600,7 @@ function renderAdminSection(name) {
     case 'paquetes':      renderAdminPackages(); break;
     case 'escaner':       renderScanTable(); break;
     case 'por-cliente':   renderPorCliente(); break;
-    case 'noasignados':   renderUnassigned(); break;
-    case 'invitaciones':  renderInvitaciones(); break;
+    case 'sindueno':      renderSinDueno(); break;
     case 'clientes':      renderAdminClients(); break;
     case 'recibos':       populateReciboClients(); renderRecibos(); break;
     case 'cta-cte':       populateReciboClients(); renderCtaCteGlobal(); break;
@@ -3684,28 +3668,7 @@ function debouncedPorCliente()    { _debounced('pc',   renderPorCliente); }
 function debouncedLiquidaciones()  { _debounced('liq',  renderLiquidaciones); }
 
 // ─── Invitaciones (Fase 2) ───────────────────────────────────────
-let invNames = [];      // nombres detectados (referencia por índice)
 let invLastMsg = '';    // último mensaje generado (para copiar / WhatsApp)
-
-function renderInvitaciones() {
-  const tbody = document.getElementById('adm-inv-body');
-  if (!tbody) return;
-  const groups = {};
-  (adminPackages || []).forEach(p => {
-    const n = (p.destinatario || '').trim();
-    if (p.unassigned && n) groups[n] = (groups[n] || 0) + 1;
-  });
-  invNames = Object.keys(groups).sort();
-  if (!invNames.length) {
-    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--gray);padding:20px">No hay clientes sin cuenta con paquetes por asignar.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = invNames.map((n, i) => `<tr>
-      <td>${manifEsc(n)}</td>
-      <td style="text-align:center">${groups[n]}</td>
-      <td><button onclick="invGenerate(this, invNames[${i}])" style="background:var(--ink);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:.8rem;cursor:pointer">Generar invitación</button></td>
-    </tr>`).join('');
-}
 
 async function invGenerate(btn, name) {
   const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Generando...';
@@ -4292,37 +4255,66 @@ async function crearCliente() {
 }
 
 // ── Bandeja de No asignados ──────────────────────────────────────
-let unassignedList = [];
-function renderUnassigned() {
-  unassignedList = adminPackages.filter(p => p.unassigned);
+// "Sin dueño" (fusión de No asignados + Invitaciones): agrupa por destinatario.
+// Grupos con nombre: asignar todo a un cliente existente O invitar por WhatsApp.
+// Paquetes sin nombre: asignación individual (no se pueden invitar sin nombre).
+let sdGroups = [];
+let sdSingles = [];
+
+function renderSinDueno() {
+  const list = adminPackages.filter(p => p.unassigned);
   const badge = document.getElementById('adm-noasig-badge');
-  if (badge) { badge.textContent = unassignedList.length; badge.style.display = unassignedList.length ? 'inline-block' : 'none'; }
-  const tbody = document.getElementById('noasig-table-body');
+  if (badge) { badge.textContent = list.length; badge.style.display = list.length ? 'inline-block' : 'none'; }
+  const tbody = document.getElementById('sindueno-body');
   if (!tbody) return;
-  if (!unassignedList.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--gray);padding:20px">No hay paquetes sin asignar. 🎉</td></tr>';
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--gray);padding:20px">No hay paquetes sin dueño. 🎉</td></tr>';
     return;
   }
-  const opts = adminClients.map(c => `<option value="${c.id}">${c.name} (@${c.username})</option>`).join('');
-  tbody.innerHTML = unassignedList.map((p, i) => `
-    <tr>
-      <td><code style="font-size:.75rem">${p.id}</code></td>
-      <td>${p.destinatario ? manifEsc(p.destinatario) : '<span style="color:var(--gray)">—</span>'}</td>
-      <td>${whTag(p.deposito)}</td>
-      <td style="color:var(--gray);font-size:.82rem">${p.fecha}</td>
-      <td style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <select id="noasig-sel-${i}" style="padding:6px 8px;border:1.5px solid var(--mist);border-radius:6px;font-size:.82rem"><option value="">— Cliente —</option>${opts}</select>
-        <button class="btn-edit" onclick="asignarPaquete(${i})">Asignar</button>
-      </td>
+  const opts = '<option value="">— Cliente —</option>' + adminClients.map(c => `<option value="${c.id}">${manifEsc(c.name)} (@${manifEsc(c.username)})</option>`).join('');
+  const named = {}, unnamed = [];
+  list.forEach(p => {
+    const n = (p.destinatario || '').trim();
+    if (n) (named[n] = named[n] || []).push(p);
+    else unnamed.push(p);
+  });
+  sdGroups = Object.keys(named).sort().map(n => ({ name: n, pkgs: named[n] }));
+  sdSingles = unnamed;
+  const selStyle = 'padding:6px 8px;border:1.5px solid var(--mist);border-radius:6px;font-size:.82rem';
+  let html = sdGroups.map((g, gi) => {
+    const trk = g.pkgs.map(p => `<code style="font-size:.72rem;color:var(--mid)">${manifEsc(p.id)}</code>`).join(' ');
+    return `<tr>
+      <td><strong>${manifEsc(g.name)}</strong><div style="color:var(--gray);font-size:.74rem;margin-top:3px">${g.pkgs.length} paquete(s): ${trk}</div></td>
+      <td style="white-space:nowrap"><select id="sd-sel-${gi}" style="${selStyle}">${opts}</select> <button class="btn-edit" onclick="sdAssignGroup(${gi})">Asignar todos</button></td>
+      <td><button onclick="invGenerate(this, sdGroups[${gi}].name)" style="background:#25d366;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:.8rem;cursor:pointer">📲 Invitar</button></td>
+    </tr>`;
+  }).join('');
+  html += sdSingles.map((p, si) => `<tr>
+      <td><code style="font-size:.72rem;color:var(--mid)">${manifEsc(p.id)}</code> <span style="color:var(--gray);font-size:.74rem">${whTag(p.deposito)} · ${p.fecha}</span><div style="color:var(--gray);font-size:.72rem">(sin nombre)</div></td>
+      <td style="white-space:nowrap"><select id="sd-single-${si}" style="${selStyle}">${opts}</select> <button class="btn-edit" onclick="sdAssignSingle(${si})">Asignar</button></td>
+      <td style="color:var(--gray);font-size:.75rem">—</td>
     </tr>`).join('');
+  tbody.innerHTML = html;
 }
 
-async function asignarPaquete(i) {
-  const p = unassignedList[i]; if (!p) return;
-  const clientId = document.getElementById('noasig-sel-' + i)?.value;
+async function sdAssignGroup(gi) {
+  const g = sdGroups[gi]; if (!g) return;
+  const clientId = document.getElementById('sd-sel-' + gi)?.value;
   if (!clientId) { alert('Elegí un cliente para asignar.'); return; }
   try {
-    await adminFetch('/api/admin/packages/' + encodeURIComponent(p.id) + '/assign', { method:'PUT', body:{ clientId } });
+    for (const p of g.pkgs) {
+      await adminFetch('/api/admin/packages/' + encodeURIComponent(p.id) + '/assign', { method: 'PUT', body: { clientId } });
+    }
+    await loadAdminData();
+  } catch (e) { alert('No se pudieron asignar todos los paquetes.'); }
+}
+
+async function sdAssignSingle(si) {
+  const p = sdSingles[si]; if (!p) return;
+  const clientId = document.getElementById('sd-single-' + si)?.value;
+  if (!clientId) { alert('Elegí un cliente para asignar.'); return; }
+  try {
+    await adminFetch('/api/admin/packages/' + encodeURIComponent(p.id) + '/assign', { method: 'PUT', body: { clientId } });
     await loadAdminData();
   } catch (e) { alert('No se pudo asignar el paquete.'); }
 }
