@@ -3215,24 +3215,25 @@ function renderCC() {
 function refreshKPIs() {
   const active    = packages.filter(p=>p.estado!=='Entregado');
   const delivered = packages.filter(p=>p.estado==='Entregado');
-  const unpaid    = packages.filter(p=>!p.pagado && p.estado!=='Entregado');
-  const totalUnpaid = unpaid.reduce((a,p)=>a+p.costo, 0);
   const totalWeight = active.reduce((a,p)=>a+p.peso, 0);
 
-  document.getElementById('kpi-saldo').textContent      = fmt(totalUnpaid);
+  // Saldo ÚNICO = cuenta corriente (cargos − pagos). Mismo número en Resumen, Balance y Cta Cte.
+  const cargos = ccMovements.filter(m=>m.tipo==='Cargo').reduce((a,m)=>a+m.monto, 0);
+  const pagos  = ccMovements.filter(m=>m.tipo==='Pago').reduce((a,m)=>a+Math.abs(m.monto), 0);
+  const saldo  = cargos - pagos;
+
+  document.getElementById('kpi-saldo').textContent      = fmt(saldo);
   document.getElementById('kpi-pkgs').textContent       = active.length;
   document.getElementById('kpi-peso').textContent       = totalWeight.toFixed(1)+' kg';
   document.getElementById('kpi-entregados').textContent = delivered.length;
 
   const balEl = document.getElementById('balance-display');
-  balEl.textContent = fmt(totalUnpaid);
-  balEl.className   = 'balance-big '+(totalUnpaid>0?'balance-red':'balance-green');
+  balEl.textContent = fmt(saldo);
+  balEl.className   = 'balance-big '+(saldo>0?'balance-red':'balance-green');
   document.getElementById('balance-note').textContent =
-    totalUnpaid>0 ? `Tenés ${fmt(totalUnpaid)} pendiente.` : 'Tu cuenta está al día.';
+    saldo>0 ? `Tenés ${fmt(saldo)} pendiente.` : 'Tu cuenta está al día.';
 
-  const cargos = ccMovements.filter(m=>m.tipo==='Cargo').reduce((a,m)=>a+m.monto, 0);
-  const pagos  = ccMovements.filter(m=>m.tipo==='Pago').reduce((a,m)=>a+Math.abs(m.monto), 0);
-  document.getElementById('cc-saldo-pendiente').textContent = fmt(cargos-pagos);
+  document.getElementById('cc-saldo-pendiente').textContent = fmt(saldo);
   document.getElementById('cc-total').textContent           = fmt(cargos);
   document.getElementById('cc-pagado').textContent          = fmt(pagos);
 
