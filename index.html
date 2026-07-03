@@ -1735,9 +1735,7 @@ footer a:hover{color:rgba(255,255,255,.75)}
       <div class="admin-nav-item" onclick="showAdminSection('clientes',this)">👤 Lista de clientes</div>
       <div class="admin-nav-item" onclick="showAdminSection('nuevo-cliente',this)">＋ Nuevo cliente</div>
       <div class="admin-nav-sep">Finanzas</div>
-      <div class="admin-nav-item" onclick="showAdminSection('recibos',this)">🧾 Recibos de pago</div>
-      <div class="admin-nav-item" onclick="showAdminSection('liquidaciones',this)">📄 Liquidaciones</div>
-      <div class="admin-nav-item" onclick="showAdminSection('cta-cte',this)">📊 Cta. Corriente global</div>
+      <div class="admin-nav-item" onclick="showAdminSection('cuenta',this)">💰 Cuenta corriente</div>
     </div>
 
     <div class="admin-main">
@@ -1950,9 +1948,34 @@ footer a:hover{color:rgba(255,255,255,.75)}
       </div>
 
       <!-- RECIBOS DE PAGO -->
-      <div class="admin-section" id="adm-recibos">
-        <div class="admin-title">Recibos de pago</div>
-        <div class="admin-sub">Registrá un pago y se carga automáticamente a la cuenta corriente del cliente.</div>
+      <div class="admin-section" id="adm-cuenta">
+        <div class="admin-title">Cuenta corriente</div>
+        <div class="admin-sub">Movimientos, registro de pagos y liquidaciones de todos los clientes.</div>
+        <div style="display:flex;gap:6px;margin:14px 0 8px;flex-wrap:wrap">
+          <button id="ctab-movimientos" class="cuenta-tab" onclick="cuentaTab('movimientos')" style="background:var(--ink);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:.85rem;cursor:pointer">📊 Movimientos</button>
+          <button id="ctab-pago" class="cuenta-tab" onclick="cuentaTab('pago')" style="background:none;color:var(--mid);border:1px solid var(--mist);border-radius:8px;padding:7px 14px;font-size:.85rem;cursor:pointer">🧾 Registrar pago</button>
+          <button id="ctab-liq" class="cuenta-tab" onclick="cuentaTab('liq')" style="background:none;color:var(--mid);border:1px solid var(--mist);border-radius:8px;padding:7px 14px;font-size:.85rem;cursor:pointer">📄 Liquidaciones</button>
+        </div>
+
+        <!-- Movimientos (antes: Cta Cte Global) -->
+        <div class="cuenta-sub" id="cuenta-sub-movimientos">
+          <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
+            <select id="cta-cte-filter" style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:220px;font-family:inherit" onchange="renderCtaCteGlobal()">
+              <option value="">Todos los clientes</option>
+            </select>
+          </div>
+          <div class="panel">
+            <div class="admin-table-wrap">
+              <table class="admin-table">
+                <thead><tr><th>Fecha</th><th>Cliente</th><th>Concepto</th><th>Ref</th><th>Tipo</th><th>Monto</th></tr></thead>
+                <tbody id="adm-ctacte-body"><tr><td colspan="6" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Registrar pago (antes: Recibos) -->
+        <div class="cuenta-sub" id="cuenta-sub-pago" style="display:none">
         <div class="panel" style="max-width:560px">
           <div id="recibo-ok" class="alert alert-success" style="display:none"></div>
           <div id="recibo-error" class="alert alert-error" style="display:none"></div>
@@ -2006,39 +2029,19 @@ footer a:hover{color:rgba(255,255,255,.75)}
         </div>
       </div>
 
-      <!-- CTA CTE GLOBAL -->
-      <div class="admin-section" id="adm-cta-cte">
-        <div class="admin-title">Cuenta Corriente Global</div>
-        <div class="admin-sub">Todos los movimientos de todos los clientes.</div>
-        <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
-          <select id="cta-cte-filter" style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:220px;font-family:inherit" onchange="renderCtaCteGlobal()">
-            <option value="">Todos los clientes</option>
-          </select>
-        </div>
-        <div class="panel">
-          <div class="admin-table-wrap">
-            <table class="admin-table">
-              <thead><tr><th>Fecha</th><th>Cliente</th><th>Concepto</th><th>Ref</th><th>Tipo</th><th>Monto</th></tr></thead>
-              <tbody id="adm-ctacte-body"><tr><td colspan="6" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
-            </table>
+        <!-- Liquidaciones (historial) -->
+        <div class="cuenta-sub" id="cuenta-sub-liq" style="display:none">
+          <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
+            <input type="text" id="liq-hist-search" placeholder="Buscar por cliente, N° o fecha..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:280px;font-family:inherit" oninput="debouncedLiquidaciones()">
+            <button onclick="loadLiquidaciones()" style="background:none;border:1px solid var(--mist);border-radius:8px;padding:7px 12px;font-size:.82rem;cursor:pointer;color:var(--mid)">↻ Actualizar</button>
           </div>
-        </div>
-      </div>
-
-      <!-- LIQUIDACIONES (historial) -->
-      <div class="admin-section" id="adm-liquidaciones">
-        <div class="admin-title">Liquidaciones</div>
-        <div class="admin-sub">Historial de todas las liquidaciones. Reenviá por email o WhatsApp, o reimprimí el PDF.</div>
-        <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
-          <input type="text" id="liq-hist-search" placeholder="Buscar por cliente, N° o fecha..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:280px;font-family:inherit" oninput="debouncedLiquidaciones()">
-          <button onclick="loadLiquidaciones()" style="background:none;border:1px solid var(--mist);border-radius:8px;padding:7px 12px;font-size:.82rem;cursor:pointer;color:var(--mid)">↻ Actualizar</button>
-        </div>
-        <div class="panel">
-          <div class="admin-table-wrap">
-            <table class="admin-table">
-              <thead><tr><th>Fecha</th><th>N°</th><th>Cliente</th><th>Paq.</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead>
-              <tbody id="adm-liq-body"><tr><td colspan="7" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
-            </table>
+          <div class="panel">
+            <div class="admin-table-wrap">
+              <table class="admin-table">
+                <thead><tr><th>Fecha</th><th>N°</th><th>Cliente</th><th>Paq.</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead>
+                <tbody id="adm-liq-body"><tr><td colspan="7" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -3602,9 +3605,7 @@ function renderAdminSection(name) {
     case 'por-cliente':   renderPorCliente(); break;
     case 'sindueno':      renderSinDueno(); break;
     case 'clientes':      renderAdminClients(); break;
-    case 'recibos':       populateReciboClients(); renderRecibos(); break;
-    case 'cta-cte':       populateReciboClients(); renderCtaCteGlobal(); break;
-    case 'liquidaciones': loadLiquidaciones(); break;
+    case 'cuenta':        cuentaTab(cuentaActiveTab); break;
     // 'manifiesto' y 'nuevo-cliente' no dependen de datos: no hay nada que re-renderizar.
   }
 }
@@ -3666,6 +3667,21 @@ function _debounced(key, fn, ms) { clearTimeout(_dbTimers[key]); _dbTimers[key] 
 function debouncedAdminPackages() { _debounced('pkgs', renderAdminPackages); }
 function debouncedPorCliente()    { _debounced('pc',   renderPorCliente); }
 function debouncedLiquidaciones()  { _debounced('liq',  renderLiquidaciones); }
+
+// ─── Cuenta corriente: sub-pestañas (Movimientos / Registrar pago / Liquidaciones) ───
+let cuentaActiveTab = 'movimientos';
+function cuentaTab(name) {
+  cuentaActiveTab = name;
+  ['movimientos','pago','liq'].forEach(k => {
+    const p = document.getElementById('cuenta-sub-' + k); if (p) p.style.display = (k === name) ? '' : 'none';
+    const t = document.getElementById('ctab-' + k);
+    if (t) { const on = (k === name); t.style.background = on ? 'var(--ink)' : 'none'; t.style.color = on ? '#fff' : 'var(--mid)'; t.style.border = on ? 'none' : '1px solid var(--mist)'; }
+  });
+  populateReciboClients();              // llena los dropdowns de Movimientos y Registrar pago
+  if (name === 'movimientos') renderCtaCteGlobal();
+  else if (name === 'pago')   renderRecibos();
+  else if (name === 'liq')    loadLiquidaciones();
+}
 
 // ─── Invitaciones (Fase 2) ───────────────────────────────────────
 let invLastMsg = '';    // último mensaje generado (para copiar / WhatsApp)
