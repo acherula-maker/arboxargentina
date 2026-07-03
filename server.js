@@ -29,9 +29,15 @@ app.use(cors());
 // Bloquear archivos sensibles del repo: aunque estén en el root, no deben servirse.
 // Lista negra por archivo (NO por extensión) porque manifest-core.js sí es público.
 // Cubre: base de datos con credenciales, código del server, config, deploy y docs.
+// IMPORTANTE: req.path NO viene decodificado, pero express.static sí decodifica y
+// resuelve ./ y ../ antes de servir. Por eso decodificamos y normalizamos el path
+// ANTES de comparar; si no, /db%2Ejson o /./db.json saltarían la lista negra.
 const BLOCKED_PATHS = /^\/(?:db\.json|server\.js|package(?:-lock)?\.json|deploy\.sh|\.env|[^/]*\.md|[^/]*\.backup|docs\/)/i;
 app.use((req, res, next) => {
-  if (BLOCKED_PATHS.test(req.path)) return res.status(404).send('Not found');
+  let p;
+  try { p = decodeURIComponent(req.path); } catch { return res.status(400).send('Bad request'); }
+  p = path.posix.normalize(p.replace(/\\/g, '/'));   // colapsa ./ y ../, unifica separadores
+  if (BLOCKED_PATHS.test(p)) return res.status(404).send('Not found');
   next();
 });
 
@@ -994,10 +1000,15 @@ app.put('/api/admin/packages/:id/assign', requireAdmin, async (req, res) => {
   pkg.unassigned = false;
   saveDB(db, 'assign-package');
   res.json({ ok: true, package: pkg });
-  // Email de arribo en segundo plano; marca notificado sólo si el envío sale bien.
+  // Email de arribo en segundo plano. Al marcar notificado se relee la base FRESCA
+  // (no se re-guarda el snapshot viejo, para no pisar asignaciones concurrentes).
   if (client.email && !pkg.notificado) {
     sendArrivalEmail(client, pkg, pkg.ultimoEvento || 'Recibido en depósito')
-      .then(() => { pkg.notificado = true; saveDB(db, 'assign-email'); })
+      .then(() => {
+        const fresh = loadDB();
+        const fp = fresh.packages.find(p => p.id === pkg.id);
+        if (fp && !fp.notificado) { fp.notificado = true; saveDB(fresh, 'assign-email'); }
+      })
       .catch(e => console.error('[assign] email:', e.message));
   }
 });
