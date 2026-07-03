@@ -26,6 +26,21 @@ app.use((req, res, next) => {
 // ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(cors());
 
+// Bloquear archivos sensibles del repo: aunque estén en el root, no deben servirse.
+// Lista negra por archivo (NO por extensión) porque manifest-core.js sí es público.
+// Cubre: base de datos con credenciales, código del server, config, deploy y docs.
+// IMPORTANTE: req.path NO viene decodificado, pero express.static sí decodifica y
+// resuelve ./ y ../ antes de servir. Por eso decodificamos y normalizamos el path
+// ANTES de comparar; si no, /db%2Ejson o /./db.json saltarían la lista negra.
+const BLOCKED_PATHS = /^\/(?:db\.json|server\.js|package(?:-lock)?\.json|deploy\.sh|\.env|[^/]*\.md|[^/]*\.backup|docs\/)/i;
+app.use((req, res, next) => {
+  let p;
+  try { p = decodeURIComponent(req.path); } catch { return res.status(400).send('Bad request'); }
+  p = path.posix.normalize(p.replace(/\\/g, '/'));   // colapsa ./ y ../, unifica separadores
+  if (BLOCKED_PATHS.test(p)) return res.status(404).send('Not found');
+  next();
+});
+
 // Static files con Cache-Control diferenciado por tipo
 app.use(express.static(__dirname, {
   setHeaders(res, filePath) {
@@ -938,16 +953,14 @@ app.post('/api/packages', async (req, res) => {
 
   db.packages.push(pkg);
   saveDB(db, 'create-package');
-
-  // Registrar en 17track (solo si el tracking parece real, no autogenerado GC-)
-  if (!trackingId.startsWith('GC-')) {
-    const result = await register17track(trackingId);
-    if (!result.ok) {
-      console.warn(`[17track] No se pudo registrar el tracking ${trackingId}: ${result.reason}`);
-    }
-  }
-
   res.status(201).json({ ok: true, package: pkg });
+
+  // Registrar en 17track en segundo plano (solo si el tracking parece real, no autogenerado GC-).
+  if (!trackingId.startsWith('GC-')) {
+    register17track(trackingId)
+      .then(result => { if (!result.ok) console.warn(`[17track] No se pudo registrar el tracking ${trackingId}: ${result.reason}`); })
+      .catch(e => console.warn(`[17track] Error registrando ${trackingId}: ${e.message}`));
+  }
 });
 
 // ─── Paquetes "No asignados" (intake Miami) ─────────────────────────────────
@@ -986,13 +999,18 @@ app.put('/api/admin/packages/:id/assign', requireAdmin, async (req, res) => {
   pkg.clientId = clientId;
   pkg.unassigned = false;
   saveDB(db, 'assign-package');
-  if (client.email && !pkg.notificado) {
-    try {
-      await sendArrivalEmail(client, pkg, pkg.ultimoEvento || 'Recibido en depósito');
-      pkg.notificado = true; saveDB(db, 'assign-email');
-    } catch (e) { console.error('[assign] email:', e.message); }
-  }
   res.json({ ok: true, package: pkg });
+  // Email de arribo en segundo plano. Al marcar notificado se relee la base FRESCA
+  // (no se re-guarda el snapshot viejo, para no pisar asignaciones concurrentes).
+  if (client.email && !pkg.notificado) {
+    sendArrivalEmail(client, pkg, pkg.ultimoEvento || 'Recibido en depósito')
+      .then(() => {
+        const fresh = loadDB();
+        const fp = fresh.packages.find(p => p.id === pkg.id);
+        if (fp && !fp.notificado) { fp.notificado = true; saveDB(fresh, 'assign-email'); }
+      })
+      .catch(e => console.error('[assign] email:', e.message));
+  }
 });
 
 // Reclamo del cliente: asigna un paquete no asignado que matchee el tracking
@@ -1073,19 +1091,23 @@ app.put('/api/packages/:id/client-edit', async (req, res) => {
 
   // Cambio de tracking: actualiza el ID del paquete
   const newTracking = tracking?.trim();
+  let trackingToRegister = null;
   if (newTracking && newTracking !== pkg.id) {
     if (db.packages.find(p => p.id === newTracking)) {
       return res.status(400).json({ error: 'Ese número de tracking ya existe' });
     }
     pkg.id = newTracking;
-    if (!newTracking.startsWith('GC-')) {
-      const result = await register17track(newTracking);
-      if (!result.ok) console.warn(`[17track] No se pudo registrar ${newTracking}: ${result.reason}`);
-    }
+    if (!newTracking.startsWith('GC-')) trackingToRegister = newTracking;
   }
 
   saveDB(db, 'client-edit-package');
   res.json({ ok: true, package: pkg });
+  // Registro en 17track en segundo plano.
+  if (trackingToRegister) {
+    register17track(trackingToRegister)
+      .then(result => { if (!result.ok) console.warn(`[17track] No se pudo registrar ${trackingToRegister}: ${result.reason}`); })
+      .catch(e => console.warn(`[17track] Error registrando ${trackingToRegister}: ${e.message}`));
+  }
 });
 
 // ─── Actualizar estado de paquete (cliente) ──────────────────────────────────
@@ -1103,10 +1125,11 @@ app.put('/api/packages/:id/status', async (req, res) => {
   pkg.estado = estado;
   addHistorialEntry(pkg, estado);
   saveDB(db, 'client-update-status');
-  if (client && oldStatus !== estado) {
-    await sendStatusChangeEmail(client, pkg, oldStatus, estado);
-  }
   res.json({ ok: true, package: pkg });
+  // Notificación en segundo plano: no bloquea la respuesta.
+  if (client && oldStatus !== estado) {
+    sendStatusChangeEmail(client, pkg, oldStatus, estado).catch(e => console.error('[status] email falló:', e.message));
+  }
 });
 
 // ─── Documentos (facturas/packing list) ──────────────────────────────────────
@@ -1237,24 +1260,8 @@ app.get('/api/movements/:clientId', (req, res) => {
   res.json(mvs);
 });
 
-app.post('/api/payments', (req, res) => {
-  const { clientId, monto } = req.body;
-  if (!clientId || !monto || monto <= 0) {
-    return res.status(400).json({ error: 'Datos de pago inválidos' });
-  }
-  const db  = loadDB();
-  const ref = `TRF-${Math.floor(Math.random() * 9000 + 1000)}`;
-  db.movements.push({
-    fecha:    new Date().toISOString().split('T')[0],
-    concepto: 'Pago cliente',
-    ref,
-    tipo:     'Pago',
-    monto:    -parseFloat(monto),
-    clientId,
-  });
-  saveDB(db, 'client-payment');
-  res.json({ ok: true, ref });
-});
+// (Eliminado POST /api/payments: sin autenticación y sin llamador — permitía acreditar
+//  pagos a cualquier cuenta. El flujo real de pagos es POST /api/admin/payments, con auth.)
 
 // ─── Clientes (admin) ─────────────────────────────────────────────────────────
 app.get('/api/clients', (req, res) => {
@@ -1306,6 +1313,7 @@ app.put('/api/admin/packages/bulk', requireAdmin, async (req, res) => {
   const db = loadDB();
   const allowed = ['estado','desc','peso','costo','deposito','obs','remitente','pagado','valor','fecha','fechaArriboBsAs','fechaEstimadaEntrega'];
   let updated = 0;
+  const toNotify = [];
   for (const id of ids) {
     const idx = db.packages.findIndex(p => p.id === id);
     if (idx === -1) continue;
@@ -1316,14 +1324,18 @@ app.put('/api/admin/packages/bulk', requireAdmin, async (req, res) => {
       addHistorialEntry(db.packages[idx], fields.estado);
       const pkg = db.packages[idx];
       const client = db.clients.find(c => c.id === pkg.clientId);
-      if (client) {
-        await sendStatusChangeEmail(client, pkg, oldStatus, fields.estado);
-      }
+      // Se junta la notificación y se envía DESPUÉS de responder (no en serie dentro del loop).
+      if (client) toNotify.push({ client, pkg: { ...pkg }, oldStatus, newStatus: fields.estado });
     }
     updated++;
   }
   saveDB(db, 'admin-bulk-update');
   res.json({ ok: true, updated });
+  // Notificaciones en segundo plano: no bloquean la respuesta y salen en paralelo.
+  if (toNotify.length) {
+    Promise.allSettled(toNotify.map(n => sendStatusChangeEmail(n.client, n.pkg, n.oldStatus, n.newStatus)))
+      .then(rs => { const fail = rs.filter(r => r.status === 'rejected').length; if (fail) console.error(`[bulk] ${fail}/${toNotify.length} emails de cambio de estado fallaron`); });
+  }
 });
 
 // Alta batch de paquetes desde manifiesto (idempotente, SIN email).
@@ -1383,16 +1395,17 @@ app.put('/api/admin/packages/:id', requireAdmin, async (req, res) => {
   const oldStatus = db.packages[idx].estado;
   if (req.body.estado && req.body.estado !== oldStatus) applyETA(db.packages[idx], req.body.estado);
   allowed.forEach(k => { if (req.body[k] !== undefined) db.packages[idx][k] = req.body[k]; });
+  let notify = null;
   if (req.body.estado && req.body.estado !== oldStatus) {
     addHistorialEntry(db.packages[idx], req.body.estado);
     const pkg = db.packages[idx];
     const client = db.clients.find(c => c.id === pkg.clientId);
-    if (client) {
-      await sendStatusChangeEmail(client, pkg, oldStatus, req.body.estado);
-    }
+    if (client) notify = { client, pkg: { ...pkg }, oldStatus, newStatus: req.body.estado };
   }
   saveDB(db, 'admin-edit-package');
   res.json({ ok: true, package: db.packages[idx] });
+  // Notificación en segundo plano: no bloquea la respuesta.
+  if (notify) sendStatusChangeEmail(notify.client, notify.pkg, notify.oldStatus, notify.newStatus).catch(e => console.error('[admin-edit] email falló:', e.message));
 });
 
 // Eliminar paquete

@@ -1765,7 +1765,7 @@ footer a:hover{color:rgba(255,255,255,.75)}
             <div class="admin-sub">Podés editar o eliminar cualquier paquete.</div>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
-            <input type="text" id="adm-search" placeholder="Buscar cliente, tracking..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:220px" oninput="renderAdminPackages()">
+            <input type="text" id="adm-search" placeholder="Buscar cliente, tracking..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:220px" oninput="debouncedAdminPackages()">
             <select id="adm-filter-estado" style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;background:#fff" onchange="renderAdminPackages()">
               <option value="">Todos los estados</option>
               <option>Registrado</option>
@@ -1868,7 +1868,7 @@ footer a:hover{color:rgba(255,255,255,.75)}
         </div>
         <div id="pc-scan-feedback" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:8px;font-size:.85rem;font-weight:600"></div>
         <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0">
-          <input type="text" id="pc-search" placeholder="Buscar cliente o tracking..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:240px" oninput="renderPorCliente()">
+          <input type="text" id="pc-search" placeholder="Buscar cliente o tracking..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:240px" oninput="debouncedPorCliente()">
           <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;color:var(--mid);cursor:pointer">
             <input type="checkbox" id="pc-show-entregados" onchange="renderPorCliente()" style="width:16px;height:16px;cursor:pointer"> Mostrar entregados
           </label>
@@ -2038,7 +2038,7 @@ footer a:hover{color:rgba(255,255,255,.75)}
         <div class="admin-title">Liquidaciones</div>
         <div class="admin-sub">Historial de todas las liquidaciones. Reenviá por email o WhatsApp, o reimprimí el PDF.</div>
         <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
-          <input type="text" id="liq-hist-search" placeholder="Buscar por cliente, N° o fecha..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:280px;font-family:inherit" oninput="renderLiquidaciones()">
+          <input type="text" id="liq-hist-search" placeholder="Buscar por cliente, N° o fecha..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:280px;font-family:inherit" oninput="debouncedLiquidaciones()">
           <button onclick="loadLiquidaciones()" style="background:none;border:1px solid var(--mist);border-radius:8px;padding:7px 12px;font-size:.82rem;cursor:pointer;color:var(--mid)">↻ Actualizar</button>
         </div>
         <div class="panel">
@@ -2410,41 +2410,6 @@ function setLang(lang) {
   }
   document.documentElement.lang = lang === 'en' ? 'en' : 'es';
 }
-
-// ─── Lightbox ────────────────────────────────────────────────────
-const LB_IMGS = [
-  'fotos/optimizadas/Archivo 1.jpg','fotos/optimizadas/Archivo 2.jpg',
-  'fotos/optimizadas/Archivo 3.jpg','fotos/optimizadas/Archivo 4.jpg',
-  'fotos/optimizadas/Archivo 5.jpg','fotos/optimizadas/Archivo 6.jpg',
-  'fotos/optimizadas/Archivo 7.jpg','fotos/optimizadas/Archivo 8.jpg',
-  'fotos/optimizadas/Archivo 9.jpg','fotos/optimizadas/Archivo 10.jpg',
-  'fotos/optimizadas/Archivo 11.jpg','fotos/optimizadas/Archivo 12.jpg',
-  'fotos/optimizadas/Archivo 13.jpg','fotos/optimizadas/Archivo 14.jpg',
-  'fotos/optimizadas/Archivo 15.jpg','fotos/optimizadas/Archivo 16.jpg',
-  'fotos/optimizadas/Archivo 17.jpg','fotos/optimizadas/Archivo 18.jpg',
-  'fotos/optimizadas/Archivo 19.jpg','fotos/optimizadas/Archivo 20.jpg'
-];
-let lbIndex = 0;
-function openLightbox(i) {
-  lbIndex = i;
-  document.getElementById('lb-img').src = LB_IMGS[i];
-  document.getElementById('lightbox').classList.add('open');
-  document.body.style.overflow = 'hidden';
-}
-function closeLightbox() {
-  document.getElementById('lightbox').classList.remove('open');
-  document.body.style.overflow = '';
-}
-function lbNav(dir) {
-  lbIndex = (lbIndex + dir + LB_IMGS.length) % LB_IMGS.length;
-  document.getElementById('lb-img').src = LB_IMGS[lbIndex];
-}
-document.addEventListener('keydown', e => {
-  if (!document.getElementById('lightbox').classList.contains('open')) return;
-  if (e.key === 'ArrowRight') lbNav(1);
-  else if (e.key === 'ArrowLeft') lbNav(-1);
-  else if (e.key === 'Escape') closeLightbox();
-});
 
 // ─── Meta Pixel: helpers de eventos + Conversions API (dedup por eventID) ─────────
 const META_PIXEL_ID = '943206914715277';
@@ -3033,24 +2998,6 @@ function renderPackages() {
     </tr>`).join('');
 }
 
-async function changeStatus(trackingId, val) {
-  const pkg = packages.find(p=>p.id===trackingId);
-  if (!pkg) return;
-  pkg.estado = val;
-  refreshKPIs();
-  if (API !== null && currentClient) {
-    try {
-      await apiFetch(`/api/packages/${trackingId}/status`, {
-        method: 'PUT',
-        body: JSON.stringify({ clientId: currentClient.id, estado: val }),
-      });
-    } catch(e) {
-      console.error('Error al actualizar estado:', e.message);
-      alert('No se pudo guardar el cambio de estado. Recargá la página.');
-    }
-  }
-}
-
 function renderEntregados() {
   const list = packages.filter(p => p.estado === 'Entregado').sort((a,b)=>b.fecha.localeCompare(a.fecha));
   const tbody = document.getElementById('entregados-table-body');
@@ -3428,29 +3375,6 @@ async function saveClientPkg() {
   renderPackages();
 }
 
-// ─── Registrar pago ───────────────────────────────────────────────
-async function registrarPago() {
-  const monto = parseFloat(prompt('Ingresá el monto del pago (USD):'));
-  if (isNaN(monto)||monto<=0) return;
-
-  if (API !== null && currentClient) {
-    try {
-      const data = await apiFetch('/api/payments', {
-        method: 'POST',
-        body: JSON.stringify({ clientId:currentClient.id, monto }),
-      });
-      ccMovements.push({ fecha:today(), concepto:'Pago cliente', ref:data.ref, tipo:'Pago', monto:-monto });
-      alert(`Pago de ${fmt(monto)} registrado. Ref: ${data.ref}`);
-    } catch { alert('Error al registrar el pago.'); return; }
-  } else {
-    const ref = 'TRF-'+Math.floor(Math.random()*9000+1000);
-    ccMovements.push({ fecha:today(), concepto:'Pago cliente', ref, tipo:'Pago', monto:-monto });
-    alert(`Pago de ${fmt(monto)} registrado. Ref: ${ref}`);
-  }
-
-  refreshAll(); renderCC();
-}
-
 // ─── Refresh ──────────────────────────────────────────────────────
 async function refreshAll() {
   if (API !== null && currentClient) {
@@ -3646,6 +3570,36 @@ function doAdminLogout() {
   window.scrollTo(0,0);
 }
 
+// Sección admin visible en este momento (para render selectivo).
+let adminActiveSection = 'resumen';
+
+// Dispatch: renderiza SOLO la sección pedida, no las ~10 de una sola vez.
+function renderAdminSection(name) {
+  switch (name) {
+    case 'resumen':       renderAdminResumen(); break;
+    case 'paquetes':      renderAdminPackages(); break;
+    case 'escaner':       renderScanTable(); break;
+    case 'por-cliente':   renderPorCliente(); break;
+    case 'noasignados':   renderUnassigned(); break;
+    case 'invitaciones':  renderInvitaciones(); break;
+    case 'clientes':      renderAdminClients(); break;
+    case 'recibos':       populateReciboClients(); renderRecibos(); break;
+    case 'cta-cte':       populateReciboClients(); renderCtaCteGlobal(); break;
+    case 'liquidaciones': loadLiquidaciones(); break;
+    // 'manifiesto' y 'nuevo-cliente' no dependen de datos: no hay nada que re-renderizar.
+  }
+}
+
+// Badges del nav (visibles aunque la sección esté oculta): se mantienen al día siempre.
+function updateNavBadges() {
+  const badge = document.getElementById('adm-noasig-badge');
+  if (badge) {
+    const n = adminPackages.filter(p => p.unassigned).length;
+    badge.textContent = n;
+    badge.style.display = n ? 'inline-block' : 'none';
+  }
+}
+
 async function loadAdminData() {
   const [clients, pkgs] = await Promise.all([
     adminFetch('/api/admin/clients'),
@@ -3653,14 +3607,9 @@ async function loadAdminData() {
   ]);
   adminClients  = clients;
   adminPackages = pkgs;
-  renderAdminResumen();
-  renderAdminPackages();
-  renderAdminClients();
-  renderUnassigned();
-  renderPorCliente();
-  populateReciboClients();
-  renderRecibos();
-  renderCtaCteGlobal();
+  // Render selectivo: sólo la sección visible (antes se repintaban las 8 en cada acción).
+  renderAdminSection(adminActiveSection);
+  updateNavBadges();
 }
 
 async function adminSync17track() {
@@ -3687,9 +3636,17 @@ function showAdminSection(name, el) {
   document.querySelectorAll('.admin-nav-item').forEach(i=>i.classList.remove('active'));
   document.getElementById('adm-'+name).classList.add('active');
   if (el) el.classList.add('active');
-  if (name === 'liquidaciones') loadLiquidaciones();
-  if (name === 'invitaciones') renderInvitaciones();
+  adminActiveSection = name;
+  renderAdminSection(name);   // render fresco al entrar (dato al día, sin repintar el resto)
 }
+
+// ─── Debounce para buscadores ────────────────────────────────────
+// Evita reconstruir tablas enteras en cada tecla; espera ~200ms tras la última.
+const _dbTimers = {};
+function _debounced(key, fn, ms) { clearTimeout(_dbTimers[key]); _dbTimers[key] = setTimeout(fn, ms || 200); }
+function debouncedAdminPackages() { _debounced('pkgs', renderAdminPackages); }
+function debouncedPorCliente()    { _debounced('pc',   renderPorCliente); }
+function debouncedLiquidaciones()  { _debounced('liq',  renderLiquidaciones); }
 
 // ─── Invitaciones (Fase 2) ───────────────────────────────────────
 let invNames = [];      // nombres detectados (referencia por índice)
@@ -3959,10 +3916,10 @@ function renderAdminPackages() {
   const q      = (document.getElementById('adm-search')?.value||'').toLowerCase();
   const estado = document.getElementById('adm-filter-estado')?.value || '';
   const pkgs   = adminPackages.filter(p =>
-    (!q || p.id.toLowerCase().includes(q) || p.clientName.toLowerCase().includes(q) ||
-     p.desc.toLowerCase().includes(q) || p.deposito.toLowerCase().includes(q)) &&
+    (!q || (p.id||'').toLowerCase().includes(q) || (p.clientName||'').toLowerCase().includes(q) ||
+     (p.desc||'').toLowerCase().includes(q) || (p.deposito||'').toLowerCase().includes(q)) &&
     (!estado || p.estado === estado)
-  ).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  ).sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
 
   const tbody = document.getElementById('adm-pkgs-body');
   tbody.innerHTML = pkgs.length ? pkgs.map(p=>`
