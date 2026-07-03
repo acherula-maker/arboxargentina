@@ -1728,7 +1728,6 @@ footer a:hover{color:rgba(255,255,255,.75)}
       <div class="admin-nav-item active" onclick="showAdminSection('resumen',this)">▦ Resumen global</div>
       <div class="admin-nav-item" onclick="showAdminSection('paquetes',this)">📦 Todos los paquetes</div>
       <div class="admin-nav-item" onclick="showAdminSection('escaner',this)">🔍 Escáner</div>
-      <div class="admin-nav-item" onclick="showAdminSection('por-cliente',this)">📋 Por cliente</div>
       <div class="admin-nav-item" onclick="showAdminSection('manifiesto',this)">📄 Procesar manifiesto</div>
       <div class="admin-nav-item" onclick="showAdminSection('sindueno',this)">📥 Sin dueño <span id="adm-noasig-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px"></span></div>
       <div class="admin-nav-sep">Clientes</div>
@@ -1781,8 +1780,12 @@ footer a:hover{color:rgba(255,255,255,.75)}
             </select>
             <button onclick="openNewPkgModal()" style="padding:7px 14px;background:#2d6a4f;color:#fff;border:none;border-radius:8px;font-size:.82rem;font-weight:700;cursor:pointer;white-space:nowrap">＋ Nuevo paquete</button>
             <button id="btn-sync17" onclick="adminSync17track()" style="padding:7px 14px;background:var(--ink);color:#fff;border:none;border-radius:8px;font-size:.82rem;font-weight:700;cursor:pointer;white-space:nowrap">↻ Sync 17track</button>
+            <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;color:var(--mid);cursor:pointer;white-space:nowrap"><input type="checkbox" id="pkg-group-toggle" onchange="togglePkgView(this.checked)" style="width:16px;height:16px;cursor:pointer"> Agrupar por cliente</label>
           </div>
         </div>
+
+        <!-- VISTA PLANA (lista de todos los paquetes) -->
+        <div id="pkgs-flat">
         <!-- Barra de acción masiva -->
         <div class="bulk-bar" id="bulk-bar">
           <span class="bulk-count" id="bulk-count">0 paquetes seleccionados</span>
@@ -1809,6 +1812,34 @@ footer a:hover{color:rgba(255,255,255,.75)}
               <tbody id="adm-pkgs-body"><tr><td colspan="9" style="text-align:center;color:var(--gray);padding:20px">Cargando...</td></tr></tbody>
             </table>
           </div>
+        </div>
+        </div><!-- /pkgs-flat -->
+
+        <!-- VISTA AGRUPADA POR CLIENTE (antes: sección "Por cliente") -->
+        <div id="pkgs-grouped" style="display:none">
+          <div class="admin-sub" style="margin-bottom:12px">Escaneá para pasar paquetes al estado elegido (te avisa al cliente) y separá la mercadería por cliente.</div>
+          <div class="pc-scanbar">
+            <input type="text" id="pc-scan-input" placeholder="Escanear o escribir tracking..." onkeydown="if(event.key==='Enter')pcScan()" oninput="document.getElementById('pc-matches-dropdown')?.remove()">
+            <button class="form-submit" onclick="pcScan()">Marcar</button>
+            <label>Estado al escanear:
+              <select id="pc-scan-estado" onchange="renderPorCliente()">
+                <option>Registrado</option>
+                <option>Recibido en origen</option>
+                <option>En tránsito</option>
+                <option selected>Clasificando en BsAs</option>
+                <option>Listo para entrega</option>
+                <option>Entregado</option>
+              </select>
+            </label>
+          </div>
+          <div id="pc-scan-feedback" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:8px;font-size:.85rem;font-weight:600"></div>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0">
+            <input type="text" id="pc-search" placeholder="Buscar cliente o tracking..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:240px" oninput="debouncedPorCliente()">
+            <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;color:var(--mid);cursor:pointer">
+              <input type="checkbox" id="pc-show-entregados" onchange="renderPorCliente()" style="width:16px;height:16px;cursor:pointer"> Mostrar entregados
+            </label>
+          </div>
+          <div id="pc-groups"></div>
         </div>
       </div>
 
@@ -1852,36 +1883,8 @@ footer a:hover{color:rgba(255,255,255,.75)}
         </div>
       </div>
 
-      <!-- PAQUETES POR CLIENTE -->
-      <div class="admin-section" id="adm-por-cliente">
-        <div class="admin-title">Paquetes por cliente</div>
-        <div class="admin-sub">Separá la mercadería por cliente y escaneá todo junto. Cada escaneo pasa el paquete al estado elegido y le avisa al cliente.</div>
-        <div class="pc-scanbar">
-          <input type="text" id="pc-scan-input" placeholder="Escanear o escribir tracking..." onkeydown="if(event.key==='Enter')pcScan()" oninput="document.getElementById('pc-matches-dropdown')?.remove()">
-          <button class="form-submit" onclick="pcScan()">Marcar</button>
-          <label>Estado al escanear:
-            <select id="pc-scan-estado" onchange="renderPorCliente()">
-              <option>Registrado</option>
-              <option>Recibido en origen</option>
-              <option>En tránsito</option>
-              <option selected>Clasificando en BsAs</option>
-              <option>Listo para entrega</option>
-              <option>Entregado</option>
-            </select>
-          </label>
-        </div>
-        <div id="pc-scan-feedback" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:8px;font-size:.85rem;font-weight:600"></div>
-        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0">
-          <input type="text" id="pc-search" placeholder="Buscar cliente o tracking..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:240px" oninput="debouncedPorCliente()">
-          <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;color:var(--mid);cursor:pointer">
-            <input type="checkbox" id="pc-show-entregados" onchange="renderPorCliente()" style="width:16px;height:16px;cursor:pointer"> Mostrar entregados
-          </label>
-        </div>
-        <div id="pc-groups"></div>
-      </div>
+      <!-- (La antigua sección "Por cliente" ahora es la vista agrupada dentro de "Todos los paquetes") -->
 
-      <!-- CLIENTES -->
-      <!-- NO ASIGNADOS -->
       <!-- PROCESAR MANIFIESTO -->
       <div class="admin-section" id="adm-manifiesto">
         <div class="admin-title">Procesar manifiesto</div>
@@ -3600,9 +3603,8 @@ let adminActiveSection = 'resumen';
 function renderAdminSection(name) {
   switch (name) {
     case 'resumen':       renderAdminResumen(); break;
-    case 'paquetes':      renderAdminPackages(); break;
+    case 'paquetes':      renderPaquetes(); break;
     case 'escaner':       renderScanTable(); break;
-    case 'por-cliente':   renderPorCliente(); break;
     case 'sindueno':      renderSinDueno(); break;
     case 'clientes':      renderAdminClients(); break;
     case 'cuenta':        cuentaTab(cuentaActiveTab); break;
@@ -3681,6 +3683,18 @@ function cuentaTab(name) {
   if (name === 'movimientos') renderCtaCteGlobal();
   else if (name === 'pago')   renderRecibos();
   else if (name === 'liq')    loadLiquidaciones();
+}
+
+// ─── "Todos los paquetes": alterna vista plana / agrupada por cliente ───
+let pkgGrouped = false;
+function renderPaquetes() { if (pkgGrouped) renderPorCliente(); else renderAdminPackages(); }
+function togglePkgView(on) {
+  pkgGrouped = !!on;
+  const flat = document.getElementById('pkgs-flat');
+  const grouped = document.getElementById('pkgs-grouped');
+  if (flat) flat.style.display = pkgGrouped ? 'none' : '';
+  if (grouped) grouped.style.display = pkgGrouped ? '' : 'none';
+  renderPaquetes();
 }
 
 // ─── Invitaciones (Fase 2) ───────────────────────────────────────
