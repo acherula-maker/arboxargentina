@@ -1768,6 +1768,7 @@ footer a:hover{color:rgba(255,255,255,.75)}
             <div class="admin-sub">Podés editar o eliminar cualquier paquete.</div>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
+            <span id="pkgs-flat-filters" style="display:flex;gap:8px;align-items:center">
             <input type="text" id="adm-search" placeholder="Buscar cliente, tracking..." style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;width:220px" oninput="debouncedAdminPackages()">
             <select id="adm-filter-estado" style="padding:7px 12px;border:1.5px solid var(--mist);border-radius:8px;font-size:.85rem;background:#fff" onchange="renderAdminPackages()">
               <option value="">Todos los estados</option>
@@ -1778,6 +1779,7 @@ footer a:hover{color:rgba(255,255,255,.75)}
               <option>Listo para entrega</option>
               <option>Entregado</option>
             </select>
+            </span>
             <button onclick="openNewPkgModal()" style="padding:7px 14px;background:#2d6a4f;color:#fff;border:none;border-radius:8px;font-size:.82rem;font-weight:700;cursor:pointer;white-space:nowrap">＋ Nuevo paquete</button>
             <button id="btn-sync17" onclick="adminSync17track()" style="padding:7px 14px;background:var(--ink);color:#fff;border:none;border-radius:8px;font-size:.82rem;font-weight:700;cursor:pointer;white-space:nowrap">↻ Sync 17track</button>
             <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;color:var(--mid);cursor:pointer;white-space:nowrap"><input type="checkbox" id="pkg-group-toggle" onchange="togglePkgView(this.checked)" style="width:16px;height:16px;cursor:pointer"> Agrupar por cliente</label>
@@ -3692,8 +3694,10 @@ function togglePkgView(on) {
   pkgGrouped = !!on;
   const flat = document.getElementById('pkgs-flat');
   const grouped = document.getElementById('pkgs-grouped');
+  const flatFilters = document.getElementById('pkgs-flat-filters'); // buscador/filtro de la vista plana
   if (flat) flat.style.display = pkgGrouped ? 'none' : '';
   if (grouped) grouped.style.display = pkgGrouped ? '' : 'none';
+  if (flatFilters) flatFilters.style.display = pkgGrouped ? 'none' : 'flex';
   renderPaquetes();
 }
 
@@ -4331,12 +4335,13 @@ async function sdAssignGroup(gi) {
   const g = sdGroups[gi]; if (!g) return;
   const clientId = document.getElementById('sd-sel-' + gi)?.value;
   if (!clientId) { alert('Elegí un cliente para asignar.'); return; }
-  try {
-    for (const p of g.pkgs) {
-      await adminFetch('/api/admin/packages/' + encodeURIComponent(p.id) + '/assign', { method: 'PUT', body: { clientId } });
-    }
-    await loadAdminData();
-  } catch (e) { alert('No se pudieron asignar todos los paquetes.'); }
+  let failed = 0;
+  for (const p of g.pkgs) {
+    try { await adminFetch('/api/admin/packages/' + encodeURIComponent(p.id) + '/assign', { method: 'PUT', body: { clientId } }); }
+    catch (e) { failed++; }
+  }
+  if (failed) alert(failed + ' paquete(s) no se pudieron asignar. Reintentá con los que quedan.');
+  await loadAdminData();   // refresca la UI aunque alguno haya fallado
 }
 
 async function sdAssignSingle(si) {
