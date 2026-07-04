@@ -105,7 +105,10 @@ const SUPERADMINS = [
     password: process.env.ADMIN_2_PASSWORD,
     name: process.env.ADMIN_2_NAME
   }
-];
+  // Descartar slots de admin sin configurar: si un ADMIN_N_* no está en el .env,
+  // sus campos quedan undefined y romperían el login (undefined.toLowerCase()).
+].filter(s => (s.email || s.username) && s.password);
+if (SUPERADMINS.length === 0) console.warn('⚠ Ningún SUPERADMIN configurado (revisá ADMIN_1_* en .env)');
 
 // ─── Base de datos (archivo JSON) ────────────────────────────────────────────
 function loadDB() {
@@ -805,30 +808,39 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 });
 
 app.post('/api/auth/login', (req, res) => {
-  const { username, password } = req.body;
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Ingresá usuario y contraseña' });
+    }
 
-  const userLower = username.toLowerCase();
+    const userLower = String(username).toLowerCase();
 
-  // Verificar superadmin
-  const sa = SUPERADMINS.find(
-    s => (userLower === s.email.toLowerCase() || userLower === s.username.toLowerCase()) && password === s.password
-  );
-  if (sa) {
-    return res.json({
-      ok: true,
-      role: 'superadmin',
-      adminToken: ADMIN_TOKEN,
-      client: { id: 'admin', name: sa.name, email: sa.email, role: 'superadmin' }
-    });
+    // Verificar superadmin (null-safe: un admin puede estar configurado por email o por usuario)
+    const sa = SUPERADMINS.find(
+      s => (userLower === (s.email || '').toLowerCase() || userLower === (s.username || '').toLowerCase())
+           && password === s.password
+    );
+    if (sa) {
+      return res.json({
+        ok: true,
+        role: 'superadmin',
+        adminToken: ADMIN_TOKEN,
+        client: { id: 'admin', name: sa.name, email: sa.email, role: 'superadmin' }
+      });
+    }
+
+    const db = loadDB();
+    const client = (db.clients || []).find(
+      c => (c.username?.toLowerCase() === userLower || c.email?.toLowerCase() === userLower) && c.password === password
+    );
+    if (!client) return res.status(401).json({ error: 'Credenciales incorrectas' });
+    const { password: _pw, ...clientData } = client;
+    res.json({ ok: true, client: clientData });
+  } catch (err) {
+    console.error('[login] Error inesperado:', err.message);
+    return res.status(500).json({ error: 'Error del servidor. Intentá de nuevo.' });
   }
-
-  const db = loadDB();
-  const client = db.clients.find(
-    c => (c.username?.toLowerCase() === userLower || c.email?.toLowerCase() === userLower) && c.password === password
-  );
-  if (!client) return res.status(401).json({ error: 'Credenciales incorrectas' });
-  const { password: _pw, ...clientData } = client;
-  res.json({ ok: true, client: clientData });
 });
 
 // ─── Registro público ────────────────────────────────────────────────────────
