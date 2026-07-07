@@ -934,8 +934,10 @@ app.get('/api/packages/:clientId', (req, res) => {
   res.json(pkgs);
 });
 
+const ESTADOS_VALIDOS = ['Registrado', 'Recibido en origen', 'En tránsito', 'Clasificando en BsAs', 'Listo para entrega', 'Entregado'];
+
 app.post('/api/packages', async (req, res) => {
-  const { clientId, deposito, tracking, desc, peso, valor, remitente, obs } = req.body;
+  const { clientId, deposito, tracking, desc, peso, valor, remitente, obs, estado } = req.body;
   if (!clientId || !deposito || !desc) {
     return res.status(400).json({ error: 'Faltan campos obligatorios' });
   }
@@ -948,6 +950,9 @@ app.post('/api/packages', async (req, res) => {
   const trackingId = tracking?.trim() || `GC-${Math.floor(Math.random() * 900000 + 100000)}`;
   const pesoNum    = parseFloat(peso) || 0;
   const valorNum   = parseFloat(valor) || 0;
+  // Estado inicial: por defecto "Registrado". El escáner por-cliente puede pedir otro.
+  const estadoInicial = ESTADOS_VALIDOS.includes(estado) ? estado : 'Registrado';
+  const hoy = new Date().toISOString().split('T')[0];
 
   // Validar que el tracking no esté duplicado
   if (db.packages.find(p => p.id === trackingId)) {
@@ -964,12 +969,12 @@ app.post('/api/packages', async (req, res) => {
     costo:     0,
     remitente: remitente || '',
     obs:       obs || '',
-    estado:    'Registrado',
-    fecha:     new Date().toISOString().split('T')[0],
+    estado:    estadoInicial,
+    fecha:     hoy,
     pagado:    false,
     notificado: false,
     documents: deposito === 'China' ? [] : null,
-    historial: [{ estado: 'Registrado', fecha: new Date().toISOString().split('T')[0], ts: Date.now() }],
+    historial: [{ estado: estadoInicial, fecha: hoy, ts: Date.now() }],
   };
 
   db.packages.push(pkg);
