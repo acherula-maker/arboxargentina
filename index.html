@@ -4454,6 +4454,19 @@ function renderCtaCteGlobal() {
 // ── Escáner ─────────────────────────────────────────────────────
 let scanList = []; // [{id, pkg, selected}]
 
+// Matchea un tracking escaneado/tipeado contra los paquetes SIN distinguir
+// mayúsculas de minúsculas. El tracking se guarda en mayúscula, pero el código
+// de barras del paquete físico puede venir en minúscula → hay que normalizar
+// ambos lados o no matchea.
+function findPackagesByScan(val) {
+  const v = String(val || '').trim().toUpperCase();
+  if (!v) return [];
+  return adminPackages.filter(p => {
+    const id = String(p.id || '').toUpperCase();
+    return !!id && (id.includes(v) || v.includes(id));
+  });
+}
+
 function scanPkg() {
   const input = document.getElementById('scan-input');
   const val = input.value.trim();
@@ -4462,7 +4475,7 @@ function scanPkg() {
   input.focus();
   const instant = document.getElementById('scan-instant')?.checked;
 
-  const matches = adminPackages.filter(p => p.id.includes(val) || val.includes(p.id));
+  const matches = findPackagesByScan(val);
   if (!matches.length) {
     if (instant) createUnassignedFromScan(val);          // intake: recibir sin asignar
     else alert(`Tracking "${val}" no encontrado en el sistema.`);
@@ -4626,7 +4639,7 @@ function pcScan() {
   input.value = '';
   input.focus();
   document.getElementById('pc-matches-dropdown')?.remove();
-  const matches = adminPackages.filter(p => p.id.includes(val) || val.includes(p.id));
+  const matches = findPackagesByScan(val);
   if (!matches.length) { pcFeedback(`Tracking "${val}" no encontrado en el sistema.`, false); return; }
   if (matches.length > 1) { pcShowMatches(matches); return; }
   pcApplyScan(matches[0]);
