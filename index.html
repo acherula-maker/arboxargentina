@@ -3520,7 +3520,7 @@ async function submitInvite(token) {
   const invMatch = location.pathname.match(/^\/invitacion\/([a-f0-9]+)/i);
   if (invMatch) { showInviteView(invMatch[1]); return; }
 
-  // 1) Admin: se mantiene logueado 45 min (con expiración)
+  // 1) Admin: sesión persistente (30 días); el token del servidor es estable entre reinicios
   try {
     const rawAdmin = localStorage.getItem('arbox_admin');
     if (rawAdmin) {
@@ -3575,12 +3575,12 @@ async function adminFetch(url, opts={}) {
   return r.json();
 }
 
-const ADMIN_SESSION_MS = 45 * 60 * 1000; // la sesión de admin se mantiene 45 min
+const ADMIN_SESSION_MS = 30 * 24 * 60 * 60 * 1000; // la sesión de admin dura 30 días (se renueva en cada apertura)
 
 async function openAdminPanel(token) {
   adminToken = token;
   isSuperAdmin = true;
-  // Persistir la sesión de admin por 45 min (se renueva en cada apertura/recarga)
+  // Persistir la sesión de admin por 30 días (se renueva en cada apertura/recarga)
   localStorage.setItem('arbox_admin', JSON.stringify({ token, exp: Date.now() + ADMIN_SESSION_MS }));
   updatePdfBtn();
   document.getElementById('landing').style.display   = 'none';

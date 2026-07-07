@@ -90,8 +90,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// ─── Token de admin (válido hasta reinicio) ───────────────────────────────────
-const ADMIN_TOKEN = crypto.randomBytes(32).toString('hex');
 const SUPERADMINS = [
   {
     email: process.env.ADMIN_1_EMAIL,
@@ -109,6 +107,17 @@ const SUPERADMINS = [
   // sus campos quedan undefined y romperían el login (undefined.toLowerCase()).
 ].filter(s => (s.email || s.username) && s.password);
 if (SUPERADMINS.length === 0) console.warn('⚠ Ningún SUPERADMIN configurado (revisá ADMIN_1_* en .env)');
+
+// ─── Token de admin ESTABLE entre reinicios ───────────────────────────────────
+// Antes era aleatorio por proceso (crypto.randomBytes), así que cada vez que el
+// hosting reiniciaba la app por inactividad (Passenger) o en cada redeploy, el
+// token cambiaba y el admin quedaba deslogueado a mitad de trabajo. Ahora se
+// deriva de un secreto estable → sobrevive reinicios y redeploys. Solo cambia si
+// cambian las credenciales de admin (o si se define ADMIN_TOKEN_SECRET en .env).
+const ADMIN_TOKEN_SEED = process.env.ADMIN_TOKEN_SECRET
+  || SUPERADMINS.map(s => `${s.username || ''}:${s.email || ''}:${s.password || ''}`).join('|')
+  || 'arbox-fallback-seed';
+const ADMIN_TOKEN = crypto.createHash('sha256').update('arbox-admin-v1|' + ADMIN_TOKEN_SEED).digest('hex');
 
 // ─── Base de datos (archivo JSON) ────────────────────────────────────────────
 function loadDB() {
