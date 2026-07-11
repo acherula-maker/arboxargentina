@@ -329,6 +329,73 @@ async function sendStatusChangeEmail(client, pkg, oldStatus, newStatus) {
   console.log(`[email] Cambio de estado enviado a ${client.email} — ${pkg.id}: ${oldStatus} → ${newStatus}`);
 }
 
+// Mail resumido: UN solo email por cliente con TODOS sus paquetes que cambiaron de estado.
+// Se usa en la actualización masiva del admin para no mandar un mail por paquete.
+// changes: [{ pkg, oldStatus, newStatus }]
+async function sendStatusDigestEmail(client, changes) {
+  if (!client.email || !changes.length) return;
+  const flagOf = d => ({ Miami: '🇺🇸', Madrid: '🇪🇸', China: '🇨🇳' }[d] || '');
+
+  const rows = changes.map(ch => `
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem"><strong>${ch.pkg.id}</strong></td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem">${ch.pkg.desc || ''}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem">${flagOf(ch.pkg.deposito)} ${ch.pkg.deposito || ''}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem">
+          <span style="color:#888">${ch.oldStatus}</span>
+          <span style="color:#0a0a0a"> → </span>
+          <strong style="color:#0a0a0a">${ch.newStatus}</strong>
+        </td>
+      </tr>`).join('');
+
+  const html = `
+    <!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/></head>
+    <body style="margin:0;padding:0;background:#f5f5f5;font-family:'Segoe UI',sans-serif">
+      <div style="max-width:640px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e5e5">
+        <div style="background:#0a0a0a;padding:28px 32px">
+          <div style="color:#fff;font-size:1.2rem;font-weight:800">Arbox Argentina</div>
+          <div style="color:rgba(255,255,255,.5);font-size:.82rem;margin-top:4px">Actualización de tus paquetes</div>
+        </div>
+        <div style="padding:32px">
+          <p style="color:#555;font-size:.95rem">Hola <strong style="color:#0a0a0a">${client.name}</strong>,</p>
+          <p style="color:#555;font-size:.9rem">${changes.length === 1 ? 'Un paquete tuyo cambió de estado' : `${changes.length} de tus paquetes cambiaron de estado`}:</p>
+          <table style="width:100%;border-collapse:collapse;margin:20px 0">
+            <thead><tr style="background:#f5f5f5">
+              <th style="padding:10px 12px;text-align:left;font-size:.75rem;text-transform:uppercase;color:#888">Tracking</th>
+              <th style="padding:10px 12px;text-align:left;font-size:.75rem;text-transform:uppercase;color:#888">Descripción</th>
+              <th style="padding:10px 12px;text-align:left;font-size:.75rem;text-transform:uppercase;color:#888">Depósito</th>
+              <th style="padding:10px 12px;text-align:left;font-size:.75rem;text-transform:uppercase;color:#888">Estado</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <div style="text-align:center;margin-top:24px">
+            <a href="${process.env.PUBLIC_URL || 'http://localhost:' + PORT}"
+               style="background:#0a0a0a;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700;font-size:.9rem;display:inline-block">
+              Ver mi Panel
+            </a>
+          </div>
+        </div>
+        <div style="background:#f5f5f5;padding:18px 32px;border-top:1px solid #eee">
+          <p style="color:#aaa;font-size:.75rem;margin:0;text-align:center">
+            Arbox Argentina — 10 años de trayectoria en Comercio Exterior<br>
+            Este es un mensaje automático, no respondas a este email.
+          </p>
+        </div>
+      </div>
+    </body></html>`;
+
+  await transporter.sendMail({
+    from:    process.env.EMAIL_FROM || 'Arbox Argentina <noreply@arboxargentina.com>',
+    to:      client.email,
+    subject: changes.length === 1
+      ? `📦 Tu paquete cambió de estado: ${changes[0].newStatus} — ${changes[0].pkg.id}`
+      : `📦 Actualización de tus paquetes (${changes.length}) — Arbox Argentina`,
+    html,
+  });
+
+  console.log(`[email] Resumen de estado enviado a ${client.email} — ${changes.length} paquete(s)`);
+}
+
 // ─── 17track API ──────────────────────────────────────────────────────────────
 const TRACK17_BASE = 'https://api.17track.net/track/v2.2';
 const TRACK17_HEADERS = {
@@ -934,8 +1001,10 @@ app.get('/api/packages/:clientId', (req, res) => {
   res.json(pkgs);
 });
 
+const ESTADOS_VALIDOS = ['Registrado', 'Recibido en origen', 'En tránsito', 'Clasificando en BsAs', 'Listo para entrega', 'Entregado'];
+
 app.post('/api/packages', async (req, res) => {
-  const { clientId, deposito, tracking, desc, peso, valor, remitente, obs } = req.body;
+  const { clientId, deposito, tracking, desc, peso, valor, remitente, obs, estado } = req.body;
   if (!clientId || !deposito || !desc) {
     return res.status(400).json({ error: 'Faltan campos obligatorios' });
   }
@@ -948,6 +1017,9 @@ app.post('/api/packages', async (req, res) => {
   const trackingId = tracking?.trim() || `GC-${Math.floor(Math.random() * 900000 + 100000)}`;
   const pesoNum    = parseFloat(peso) || 0;
   const valorNum   = parseFloat(valor) || 0;
+  // Estado inicial: por defecto "Registrado". El escáner por-cliente puede pedir otro.
+  const estadoInicial = ESTADOS_VALIDOS.includes(estado) ? estado : 'Registrado';
+  const hoy = new Date().toISOString().split('T')[0];
 
   // Validar que el tracking no esté duplicado
   if (db.packages.find(p => p.id === trackingId)) {
@@ -964,12 +1036,12 @@ app.post('/api/packages', async (req, res) => {
     costo:     0,
     remitente: remitente || '',
     obs:       obs || '',
-    estado:    'Registrado',
-    fecha:     new Date().toISOString().split('T')[0],
+    estado:    estadoInicial,
+    fecha:     hoy,
     pagado:    false,
     notificado: false,
     documents: deposito === 'China' ? [] : null,
-    historial: [{ estado: 'Registrado', fecha: new Date().toISOString().split('T')[0], ts: Date.now() }],
+    historial: [{ estado: estadoInicial, fecha: hoy, ts: Date.now() }],
   };
 
   db.packages.push(pkg);
@@ -1352,10 +1424,18 @@ app.put('/api/admin/packages/bulk', requireAdmin, async (req, res) => {
   }
   saveDB(db, 'admin-bulk-update');
   res.json({ ok: true, updated });
-  // Notificaciones en segundo plano: no bloquean la respuesta y salen en paralelo.
+  // Notificaciones en segundo plano: UN mail resumido por cliente (no uno por paquete),
+  // así un cliente con 50 paquetes recibe un solo email con todos los cambios.
   if (toNotify.length) {
-    Promise.allSettled(toNotify.map(n => sendStatusChangeEmail(n.client, n.pkg, n.oldStatus, n.newStatus)))
-      .then(rs => { const fail = rs.filter(r => r.status === 'rejected').length; if (fail) console.error(`[bulk] ${fail}/${toNotify.length} emails de cambio de estado fallaron`); });
+    const byClient = new Map();
+    for (const n of toNotify) {
+      const entry = byClient.get(n.client.id) || { client: n.client, changes: [] };
+      entry.changes.push({ pkg: n.pkg, oldStatus: n.oldStatus, newStatus: n.newStatus });
+      byClient.set(n.client.id, entry);
+    }
+    const digests = [...byClient.values()];
+    Promise.allSettled(digests.map(e => sendStatusDigestEmail(e.client, e.changes)))
+      .then(rs => { const fail = rs.filter(r => r.status === 'rejected').length; if (fail) console.error(`[bulk] ${fail}/${digests.length} mails resumidos fallaron`); });
   }
 });
 
@@ -1445,8 +1525,14 @@ app.put('/api/admin/clients/:id', requireAdmin, (req, res) => {
   const db  = loadDB();
   const idx = db.clients.findIndex(c => c.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Cliente no encontrado' });
-  const allowed = ['name','email','phone','username','password','cuit'];
+  const allowed = ['name','email','phone','username','password','cuit','precioKg'];
   allowed.forEach(k => { if (req.body[k] !== undefined) db.clients[idx][k] = req.body[k]; });
+  // precioKg: normalizar a número (o quitar si viene vacío/inválido)
+  if (req.body.precioKg !== undefined) {
+    const pk = parseFloat(req.body.precioKg);
+    if (Number.isFinite(pk) && pk > 0) db.clients[idx].precioKg = pk;
+    else delete db.clients[idx].precioKg;
+  }
   saveDB(db, 'admin-edit-client');
   const { password: _pw, ...clientData } = db.clients[idx];
   res.json({ ok: true, client: clientData });
@@ -1470,8 +1556,10 @@ app.post('/api/admin/clients', requireAdmin, (req, res) => {
   if (!name || !username || !password) return res.status(400).json({ error: 'Faltan campos' });
   const db = loadDB();
   if (db.clients.find(c => c.username?.toLowerCase() === username.toLowerCase())) return res.status(400).json({ error: 'Usuario ya existe' });
-  const { cuit, phone } = req.body;
+  const { cuit, phone, precioKg } = req.body;
+  const pk = parseFloat(precioKg);
   const newClient = { id: Date.now().toString(), name, email: email||'', phone: phone||'', cuit: cuit||'', username, password };
+  if (Number.isFinite(pk) && pk > 0) newClient.precioKg = pk;
   db.clients.push(newClient);
   saveDB(db, 'admin-create-client');
   const { password: _pw, ...clientData } = newClient;
@@ -1501,13 +1589,16 @@ app.post('/api/admin/payments', requireAdmin, (req, res) => {
 // Arma el HTML del email de liquidación (reutilizado por crear y reenviar)
 function buildLiquidacionEmailHtml(client, items, totalPeso, totalCosto) {
   const flag = { Miami: '🇺🇸', Madrid: '🇪🇸', China: '🇨🇳' };
+  // Total global (suma manual): los ítems no tienen costo individual → mostramos "—" por fila.
+  const itemsCostoSum = items.reduce((a, p) => a + Number(p.costo || 0), 0);
+  const lumpSum = itemsCostoSum === 0 && totalCosto > 0;
   const rows = items.map(p => `
       <tr>
         <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem">${p.id}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem">${p.desc}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem">${flag[p.deposito]||''} ${p.deposito}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem;text-align:right">${Number(p.peso||0)} kg</td>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem;text-align:right;font-weight:700">USD ${Number(p.costo||0).toFixed(2)}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:.85rem;text-align:right;font-weight:700">${lumpSum ? '—' : 'USD ' + Number(p.costo||0).toFixed(2)}</td>
       </tr>`).join('');
 
   return `
@@ -1546,7 +1637,7 @@ function buildLiquidacionEmailHtml(client, items, totalPeso, totalCosto) {
 }
 
 app.post('/api/admin/liquidacion', requireAdmin, async (req, res) => {
-  const { clientId, packages: pkgUpdates, sendEmail } = req.body;
+  const { clientId, packages: pkgUpdates, sendEmail, totalManual } = req.body;
   if (!clientId || !Array.isArray(pkgUpdates)) return res.status(400).json({ error: 'Datos inválidos' });
 
   const db = loadDB();
@@ -1567,19 +1658,23 @@ app.post('/api/admin/liquidacion', requireAdmin, async (req, res) => {
     items.push(pkg);
   });
 
+  // Total a cobrar: si se ingresó un total manual (> 0) prevalece sobre la suma por paquete.
+  const manual = parseFloat(totalManual);
+  const chargeTotal = (Number.isFinite(manual) && manual > 0) ? manual : totalCosto;
+
   // Token de entrega (QR) — los paquetes pasan a "Entregado" al escanearlo
   const ref = `LIQ-${Date.now().toString().slice(-6)}`;
   const deliveryToken = crypto.randomBytes(16).toString('hex');
   const itemsSnap = items.map(p => ({ id:p.id, desc:p.desc, deposito:p.deposito, peso:p.peso, costo:p.costo }));
 
   // Registrar cargo en cuenta corriente (con snapshot de ítems para el PDF)
-  if (totalCosto > 0) {
+  if (chargeTotal > 0) {
     db.movements.push({
       fecha:    new Date().toISOString().split('T')[0],
       concepto: 'Liquidación flete + almacenaje',
       ref,
       tipo:     'Cargo',
-      monto:    totalCosto,
+      monto:    chargeTotal,
       clientId,
       items:    itemsSnap,
       totalPeso,
@@ -1596,23 +1691,23 @@ app.post('/api/admin/liquidacion', requireAdmin, async (req, res) => {
 
   // Enviar email si se pidió
   if (sendEmail && client.email) {
-    const html = buildLiquidacionEmailHtml(client, items, totalPeso, totalCosto);
+    const html = buildLiquidacionEmailHtml(client, items, totalPeso, chargeTotal);
 
     try {
       await transporter.sendMail({
         from: process.env.EMAIL_FROM || 'Arbox Argentina <noreply@arboxargentina.com>',
         to: client.email,
-        subject: `Liquidación de paquetes — USD ${totalCosto.toFixed(2)} — Arbox Argentina`,
+        subject: `Liquidación de paquetes — USD ${chargeTotal.toFixed(2)} — Arbox Argentina`,
         html,
       });
-      console.log(`[email] Liquidación enviada a ${client.email} — USD ${totalCosto.toFixed(2)}`);
+      console.log(`[email] Liquidación enviada a ${client.email} — USD ${chargeTotal.toFixed(2)}`);
     } catch (err) {
       console.error('[email] Error enviando liquidación:', err.message);
-      return res.json({ ok: true, emailSent: false, totalCosto, totalPeso, deliveryToken });
+      return res.json({ ok: true, emailSent: false, totalCosto: chargeTotal, totalPeso, deliveryToken });
     }
   }
 
-  res.json({ ok: true, emailSent: !!(sendEmail && client.email), totalCosto, totalPeso, deliveryToken });
+  res.json({ ok: true, emailSent: !!(sendEmail && client.email), totalCosto: chargeTotal, totalPeso, deliveryToken });
 });
 
 // Reenviar por email una liquidación ya existente (mismo documento: no crea cargo ni cambia estados)
@@ -1634,7 +1729,9 @@ app.post('/api/admin/liquidacion/:ref/resend', requireAdmin, async (req, res) =>
   }
   if (!items.length) return res.status(400).json({ error: 'La liquidación no tiene detalle para reenviar' });
 
-  const totalCosto = items.reduce((a, p) => a + Number(p.costo || 0), 0);
+  // El monto guardado del movimiento prevalece (respeta el total manual); si no, suma por ítem.
+  const itemsCostoSum = items.reduce((a, p) => a + Number(p.costo || 0), 0);
+  const totalCosto = Number(mov.monto) > 0 ? Number(mov.monto) : itemsCostoSum;
   const totalPeso  = items.reduce((a, p) => a + Number(p.peso || 0), 0);
   const html = buildLiquidacionEmailHtml(client, items, totalPeso, totalCosto);
 
